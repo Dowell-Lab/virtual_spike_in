@@ -7,10 +7,12 @@
 
 library("tidyverse")
 library("ggthemes")
+library("pbapply")
+library("gridExtra")
 library("DESeq2")
 
 ## Change this for different experiments...
-setwd('/home/zach/dowell_lab/pausing_meta_analysis/out/normalization')
+setwd('/home/zach/dowell_lab/virtual_spike_in/dat/')
 num_reps <- 2
 
 ## To filter out only the genes we've used and convert to common ID
@@ -36,33 +38,31 @@ rownames(full_dt) <- full_dt$common
 full_dt$common <- NULL
 full_dt <- as_tibble(full_dt)
 
-full_dt <- full_dt %>% mutate(c_mean = (rowMeans(full_dt[c('C413_1_S3_R1_001.sorted.bam',
-                                                           'C413_2_S4_R1_001.sorted.bam')])),
-                              p_mean = (rowMeans(full_dt[c('PO_1_S1_R1_001.sorted.bam',
-                                                           'PO_2_S2_R1_001.sorted.bam')])))
+full_dt <- full_dt %>%
+    mutate(wt_mean = (rowMeans(full_dt[c('wt_U2OS_b1.sorted.bam',
+                                         'wt_U2OS_b2.sorted.bam')])),
+           wt1h_mean = (rowMeans(full_dt[c('wt_1hAs_U2OS_b1.sorted.bam',
+                                           'wt_1hAs_U2OS_b2.sorted.bam')])),
+           dg_mean = (rowMeans(full_dt[c('dG3BP_U2OS_b1.sorted.bam',
+                                         'dG3BP_U2OS_b2.sorted.bam')])),
+           dg1h_mean = (rowMeans(full_dt[c('dG3BP_1hAs_U2OS_b1.sorted.bam',
+                                           'dG3BP_1hAs_U2OS_b2.sorted.bam')]))) %>%
+    subset(select = c('wt_mean', 'wt1h_mean', 'dg_mean', 'dg1h_mean'))
 
-## Characterize the underlying normalized read distribution
-ggplot(data = full_dt) +
-    geom_density(aes(x = c_mean, color="Control")) +
-    geom_density(aes(x = p_mean, color="Treatment")) +
-    labs(title = "Distribution of Coverage in the 120kb -> -500polyA Region",
-         x = "Coverage",
-         y = "Proportion",
-         color = "Sample") +
-    theme_tufte() +
-    scale_x_log10() +
-    annotation_logticks() +
-    ggsave("dist.pdf", width = 10, height = 5, device = "pdf")
 
 ## Use linear regression to check for baseline skew between samples
+library("speedglm")
 reg <- function(df) {
-    lin_mod <- lm(c_mean ~ p_mean, data=df)
-    slope <- summary(lin_mod)$coefficients[2]
-    rsqr <- summary(lin_mod)$r.squared
-    return(slope)
+    slopes <- c(
+        summary(lm(dg_mean   ~ 0 + dg1h_mean, data=df))$coefficients[1],
+        summary(lm(dg_mean   ~ 0 + wt_mean, data=df  ))$coefficients[1],
+        summary(lm(dg_mean   ~ 0 + wt1h_mean, data=df))$coefficients[1],
+        summary(lm(dg1h_mean ~ 0 + wt_mean, data=df  ))$coefficients[1],
+        summary(lm(dg1h_mean ~ 0 + wt1h_mean, data=df))$coefficients[1],
+        summary(lm(wt_mean   ~ 0 + wt1h_mean, data=df))$coefficients[1]
+    )
+    return(slopes)
 }
-slope <- reg(full_dt)
-msg <- paste0("Treatment/Control Slope: ", signif(slope, 5))
 
 ## NOTE: This step is not required, it's just for checking the quality
 ## of results.
@@ -72,33 +72,74 @@ msg <- paste0("Treatment/Control Slope: ", signif(slope, 5))
 ## that using N^2 will give us close to optimal results. That will
 ## take too long on my laptop, so we'll just do 100k trials, which is
 ## about 10% of that value.
-sample_slopes <- replicate(100000, reg(sample_frac(full_dt, 0.25)))
-write(sample_slopes, "slopes.txt")
-max_distance <- max(sample_slopes)
-min_distance <- min(sample_slopes)
-write(paste0("Subsampled 100000x at 25% Original Size\n",
-             "Max: ", max_distance, "\n",
-             "Min: ", min_distance), "subsample_info.txt")
+sample_slopes <- pbreplicate(40000, reg(sample_frac(full_dt, 0.15, replace = TRUE)))
+slope_dist <- as_tibble(t(sample_slopes))
+colnames(slope_dist) <- c("dg_v_dg1h",
+                          "dg_v_wt",
+                          "dg_vs_wt1h",
+                          "dg1h_v_wt",
+                          "dg1h_v_wt1h",
+                          "wt_v_wt1h")
 
-## Generate a distribution plot for the cross validation
-ggplot() +
-    geom_density(aes(x = sample_slopes)) +
-    labs(title = "Distribution of Regression Slopes from Cross Validation",
-         x = "Slope",
+## Mapped data stats
+## mapstats <- tibble(dg1h_1 = 906583, dg1h_2 = 821856, dg_1 = 1299042,
+##                    dg_2 = 821856, wt1h_1 = 1784247, wt1h_2 = 334378,
+##                    wt_1 = 1988813, wt_2 = 2376890) %>%
+mapstats <- tibble(dg1h_1 = 56958302, dg1h_2 = 69950273, dg_1 = 58282107,
+                   dg_2 = 71052598, wt1h_1 = 91587100, wt1h_2 = 66604306,
+                   wt_1 = 85780194, wt_2 = 93689147) %>%
+    mutate(dg1h = mean(dg1h_1, dg1h_2),
+           dg = mean(dg_1, dg_2),
+           wt1h = mean(wt1h_1, wt1h_2),
+           wt = mean(wt_1, wt_2)) %>%
+    mutate(dg_v_dg1h = dg / dg1h,
+           dg_v_wt = dg / wt,
+           dg_vs_wt1h = dg / wt1h,
+           dg1h_v_wt = dg1h / wt,
+           dg1h_v_wt1h = dg1h / wt1h,
+           wt_v_wt1h = wt / wt1h) %>%
+    subset(select = c(dg_v_dg1h, dg_v_wt, dg_vs_wt1h,
+                      dg1h_v_wt, dg1h_v_wt1h, wt_v_wt1h))
+
+
+## Generate some distribution plots for the cross validation
+dg_v_wt_pl <- ggplot() +
+    geom_density(data = slope_dist, aes(x = dg_v_wt)) +
+    geom_vline(data = mapstats, aes(xintercept = dg_v_wt)) +
+    labs(title = "dg_v_wt", x = "Slope",
+         y = "Proportion") + theme_tufte() + xlim(0, 2)
+wt_v_wt1h_pl <- ggplot() +
+    geom_density(data = slope_dist, aes(x = wt_v_wt1h)) +
+    geom_vline(data = mapstats, aes(xintercept = wt_v_wt1h)) +
+    labs(title = "wt_v_wt1h", x = "Slope",
+         y = "Proportion") + theme_tufte() + xlim(0, 2)
+dg_v_wt1h_pl <- ggplot() +
+    geom_density(data = slope_dist, aes(x = dg_vs_wt1h)) +
+    geom_vline(data = mapstats, aes(xintercept = dg_vs_wt1h)) +
+    labs(title = "dg_v_wt1h", x = "Slope",
+         y = "Proportion") + theme_tufte() + xlim(0, 2)
+dg1h_v_wt1h_pl <- ggplot() +
+    geom_density(data = slope_dist, aes(x = dg1h_v_wt1h)) +
+    geom_vline(data = mapstats, aes(xintercept = dg1h_v_wt1h)) +
+    geom_vline(data = mapstats, aes(xintercept = dg1h_v_wt1h)) +
+    labs(title = "dg1h_v_wt1h", x = "Slope",
+         y = "Proportion") + theme_tufte() + xlim(0, 2)
+dg_v_dg1h_pl <- ggplot() +
+    geom_density(data = slope_dist, aes(x = dg_v_dg1h)) +
+    geom_vline(data = mapstats, aes(xintercept = dg_v_dg1h)) +
+    labs(title = "dg_v_dg1h", x = "Slope",
+         y = "Proportion") + theme_tufte() + xlim(0, 2)
+dg1h_v_wt_pl <- ggplot() +
+    geom_density(data = slope_dist, aes(x = dg1h_v_wt)) +
+    geom_vline(data = mapstats, aes(xintercept = dg1h_v_wt)) +
+    labs(title = "dg1h_v_wt", x = "Slope",
          y = "Proportion") +
     theme_tufte() +
-    xlim(0, 2) +
-    ggsave("crossval_dist.pdf", width = 10, height = 5, device = "pdf")
+    xlim(0, 2)
 
-## Generate a plot showing the linear regression.
-ggplot(data = full_dt) +
-    geom_point(aes(x = c_mean, y = p_mean)) +
-    geom_smooth(method = 'lm', aes(x = c_mean, y = p_mean)) +
-    geom_abline(slope=1, color = "red") +
-    annotate("text", x = 10, y = 1000, label = msg) +
-    labs(title = "Regression For Normalization Based on +120kb to -0.5kb on Genes > 120kb",
-         x = "Control Counts",
-         y = "Treatment Counts") +
-    theme_tufte() +
-    scale_x_log10() + scale_y_log10() +
-    ggsave("corr.pdf", width = 10, height = 5, device = "pdf")
+arr <- grid.arrange(dg_v_wt_pl, wt_v_wt1h_pl, dg_v_wt1h_pl,
+                    dg1h_v_wt1h_pl, dg_v_dg1h_pl, dg1h_v_wt_pl,
+                    nrow = 2,
+                    top = "Long-Gene End Normalization Distribution vs Spike-In Normalization",
+                    bottom = "Vertical Lines are Spike-In, Distribution is Long Genes")
+ggsave("crossval_dist.pdf", arr, width = 10, height = 5, device = "pdf")

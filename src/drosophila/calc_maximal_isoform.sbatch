@@ -43,7 +43,7 @@ RefSeq=/scratch/Shares/dowell/genomes/dm6/dm6_refseq.bed
 ScriptDir=/scratch/Users/zama8258/pause_analysis_src
 
 ## This is a scratch directory that we use to hold temporary files.
-ScratchDir=/scratch/Users/zama8258/virtual_spike_in/scratch/fpkm
+ScratchDir=/scratch/Users/zama8258/virtual_spike_in/scratch/fpkm/drosophila
 
 ## This is the output directory
 OutDir="$ScratchDir"
@@ -142,8 +142,8 @@ read -r NegCountsMapped <<< "$(awk	-F '\t' -v OFS='\t'	'{sum += $7} END {print s
 
 ## Then, we generate a scaling factor for RPKM by dividing our mapped
 ## counts by 1 million
-read -r PosScalingFactor <<< "$((PosCountsMapped / 1000000))"
-read -r NegScalingFactor <<< "$((NegCountsMapped / 1000000))"
+read -r PosScalingFactor <<< "$(echo "$PosCountsMapped" / 1000000 | bc -l)"
+read -r NegScalingFactor <<< "$(echo "$NegCountsMapped" / 1000000 | bc -l)"
 
 ## We proceed to divide every count in our bedfile by the
 ## strand-specific scaling factor

@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --output=/scratch/Users/zama8258/generic/e_and_o/%x_%j.out
-#SBATCH --error=/scratch/Users/zama8258/generic/e_and_o/%x_%j.err
+#SBATCH --output=/scratch/Users/zama8258/virtual_spike_in/e_and_o/%x_%j.out
+#SBATCH --error=/scratch/Users/zama8258/virtual_spike_in/e_and_o/%x_%j.err
 #SBATCH -p short
 #SBATCH -N 1
 #SBATCH -c 8
@@ -14,11 +14,11 @@ fc=/scratch/Users/zama8258/subread-1.6.2-Linux-x86_64/bin/featureCounts
 NUM_CORES=8
 
 # IO Vars
-refGenes=/scratch/Users/zama8258/processed_nascent/fpkm/C413_1_S3_R1_001.trim.sorted.isoform_max.bed
-bamDir=/scratch/Users/zama8258/processed_nascent_testing/mapped/bams
-outDir=/scratch/Users/zama8258/processed_nascent/norm
+refGenes=/scratch/Users/zama8258/virtual_spike_in/scratch/fpkm/human/dG3BP_1hAs_U2OS_b1.sorted.isoform_max.bed
+bamDir=/scratch/Shares/dowell/ripin/PRO-seq/mapped/bams
+outDir=/scratch/Users/zama8258/virtual_spike_in/scratch/norm
 baseDir="$outDir"
-outBed=/scratch/Users/zama8258/processed_nascent/norm/coords.bed
+outBed="$outDir"/coords.bed
 
 # Filter to things longer than 120kb  and adjust the genomic coordinates
 awk -v OFS='\t' -f <(cat - <<- "EOF"
