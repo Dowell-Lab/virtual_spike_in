@@ -101,17 +101,26 @@ def run_glm(i, j, data):
     ratio = np.log(spike_in_dict[i] / spike_in_dict[j])
 
     # Execute the model
-    with pm.Model():
-        # pm.glm.GLM.from_formula(design, data)
-        std = pm.HalfCauchy("std", beta=data_var)
-        mean_var = pm.Exponential("mean_var", lam=1 / data_var)
-        mean = pm.Normal("mean", mu=data_mean, sigma=mean_var)
+    with pm.Model() as model:
+        num_samples = 5000
+        burn = 100
+        # We expect variance to be positive, so use a Exponential. Half
+        # cauchy also makes sure we won't hit invalid negative values
+        std = pm.Exponential("std", lam=data_var ** 2)
+        # Normal or Cauchy works here, but the steepness of Cauchy
+        # seems to make the model converge more effectively
+        mean = pm.Normal("mean", mu=data_mean, sigma=data_var ** 2)
+        # Fold changes are log-normally distributed. By using the log
+        # of the ratio, we transform it to be normally distributed,
+        # making parameter inference simpler.
         obs = pm.Normal("obs", mu=mean, sigma=std, observed=data_ratio)
-        # start = pm.find_MAP()
-        trace = pm.sample(1000)
-        trace_post_burn = trace[500:]
+        # Plot our model first
+        pm.model_to_graphviz(model).render("model_graph.gv")
+        # Then, run sampling
+        trace = pm.sample(num_samples, init="advi+adapt_diag")
+        trace_post_burn = trace[burn:]
         mu = np.mean(trace_post_burn["mean"])
-        sigma = np.sqrt(np.mean(np.abs(trace_post_burn["mean"])))
+        sigma = np.mean(trace_post_burn["std"])
         return dict(design=design, mu=mu, sigma=sigma, ratio=ratio)
 
 
@@ -124,25 +133,32 @@ def plot_model_output(ax, result_dict, n=100):
     sigma = result_dict["sigma"]
     ratio = result_dict["ratio"]
     # x = np.linspace(mu - 3 * sigma, mu + 3 * sigma, n)
-    x = np.linspace(-1, 1, n)
+    x = np.linspace(-2, 2, n)
     y = st.norm.pdf(x, mu, sigma)
-    y_norm = st.norm.pdf(x, 0, sigma)
     z = st.norm.ppf(st.norm.cdf(ratio, loc=mu, scale=sigma))
-    z_color = "red" if np.abs(z) > 2 else "black"
+    z_color = "black" if np.abs(z) > 1 else "red"
     ax.plot(x, y)
-    ax.plot(x, y_norm, color="grey", linewidth=0.25)
     ax.axvline(0, color="grey", linewidth=0.25)
     ax.axvline(ratio, color=z_color)
     ax.annotate(f"z = {z:.3f}", xy=(0.1, 0.8), xycoords="axes fraction")
     ax.set_title(plot_title)
+    ax.set_xlabel("Log(Normalization Factor)")
+    ax.set_ylabel("Relative Proportion")
 
 
-ncol = 2
+ncol = 4
 nrow = int(np.ceil(len(results) / ncol))
-fig, axs = plt.subplots(nrow, ncol, constrained_layout=True)
+fig, axs = plt.subplots(
+    nrow, ncol, constrained_layout=True, figsize=(16.0, 9.0)
+)
 for idx, result in enumerate(results):
     plot_model_output(axs.flat[idx], result)
-plt.show()
+lst = axs.flat[(ncol * nrow) - 1].axis("off")
+plt.savefig(
+    "/home/zach/dowell_lab/virtual_spike_in/dat/bayes_spike_in.pdf",
+    format="pdf",
+    orientation="landscape",
+)
 
 #
 # virtual_spike_in.py ends here
