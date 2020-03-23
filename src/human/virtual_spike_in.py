@@ -44,7 +44,10 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pymc3 as pm
 import pickle
+from os import path
+import time
 
+# Constants required for now, eventually these will be parameterized
 count_data_human = (
     "/home/zach/dowell_lab/virtual_spike_in/dat/counts_long_ends.txt"
 )
@@ -52,12 +55,14 @@ count_data_drosophila = (
     "/home/zach/dowell_lab/virtual_spike_in/dat/drosophila_counts_fix.txt"
 )
 # Samples can be specified in terms of a flat list or tuples of replicates
+# We ought to be able to infer these from counts data at some point
 samples = [
     ("wt_U2OS_b1", "wt_U2OS_b2"),
     ("dG3BP_U2OS_b1", "dG3BP_U2OS_b2"),
     ("wt_1hAs_U2OS_b1", "wt_1hAs_U2OS_b2"),
     ("dG3BP_1hAs_U2OS_b1", "dG3BP_1hAs_U2OS_b2"),
 ]
+# Static spike-in values, eventually these will be obsolete
 spike_in_dict = dict(
     wt_U2OS_b1=85780194,
     wt_U2OS_b2=93689147,
@@ -68,33 +73,30 @@ spike_in_dict = dict(
     dG3BP_1hAs_U2OS_b1=56958302,
     dG3BP_1hAs_U2OS_b2=69950273,
 )
-
-# Flatten rows to subset our data
 sample_cols = list(it.chain.from_iterable(samples))
-seqdata_human = (
-    pd.read_csv(count_data_human, sep="\t")
-    .rename(columns=lambda x: re.sub(".sorted.bam", "", x))[sample_cols]
-    .astype("float32")
-)
-# seqdata_human = seqdata_human_ini[(seqdata_human_ini.T != 0).any()]
-seqdata_drosophila = (
-    pd.read_csv(count_data_drosophila, sep="\t")
-    .rename(columns=lambda x: re.sub(".sorted.bam", "", x))[sample_cols]
-    .astype("float32")
-)
-# seqdata_drosophila = seqdata_drosophila_ini[
-#     (seqdata_drosophila_ini.T != 0).any()
-# ]
+
+
+def import_count_data(data_csv_filename):
+    """Generic wrapper for importing counts tables as a dataframe"""
+    return (
+        pd.read_csv(data_csv_filename, sep="\t")
+        .rename(columns=lambda x: re.sub(".sorted.bam", "", x))[sample_cols]
+        .astype("float32")
+    )
+
+
+# Perform data import for each organism and merge the data
+seqdata_human = import_count_data(count_data_human)
+seqdata_drosophila = import_count_data(count_data_drosophila)
 seqdata_merged = pd.concat([seqdata_human, seqdata_drosophila])
 
 
 # We want every pairwise combination
-# pairwise_combinations = [(sample_cols[0], j) for j in sample_cols[1:]]
 pairwise_combinations = list(it.combinations(sample_cols, 2))
 
 
-def glm_model(obs, plot_model=False):
-    """The definition for our model"""
+def lfc_model(obs, plot_model=False, num_samples=2000, burn=500):
+    """The definition for our linear log-fold change model"""
     with pm.Model() as model:
         # Calculate data for priors
         data_var = np.var(obs)
@@ -104,7 +106,7 @@ def glm_model(obs, plot_model=False):
         std = pm.Exponential("std", lam=1 / data_var)
         # Normal or Cauchy works here, but the steepness of Cauchy
         # seems to make the model converge more effectively
-        mean = pm.Normal("mean", mu=data_mean, sigma=data_var)
+        mean = pm.Laplace("mean", mu=data_mean, b=data_var)
         # Fold changes are log-normally distributed. By using the log
         # of the ratio, we transform it to be normally distributed,
         # making parameter inference simpler.
@@ -113,45 +115,72 @@ def glm_model(obs, plot_model=False):
         # Plot the model if we explicitly request it
         if plot_model:
             pm.model_to_graphviz(model).render("model_graph.gv")
-    return model
+
+        # Run the actual sampling process
+        trace = pm.sample(draws=num_samples, tune=burn, init="auto",)
+        return trace
 
 
-def run_glm(i, j, tag, data):
-    "Run a GLM on our data"
-    design = f"{i}_{j}"
+def run_normalization_model(i, j, tag, data):
+    """Run the linear log-fold change model on our data"""
+
+    # We want to time each run for diagnostics
+    start = time.time()
+
+    # Each run gets a unique design string
+    design = f"{i}_vs_{j}"
+
     # We express fold-changes in the log transformed form, since
     # log-transformed fold-change values are normally distributed.
-    data_ratio = (
-        np.log2(np.divide(np.add(data[i], 1), np.add(data[j], 1),))
-        # .replace([np.inf, -np.inf], np.nan)
-        # .dropna()
-    )
-    # data_ratio = data_ratio_ini[(data_ratio_ini.T != 0)]
+    data_ratio = np.log2(np.divide(np.add(data[i], 1), np.add(data[j], 1),))
     ratio = np.log2(spike_in_dict[i] / spike_in_dict[j])
 
     # Execute the model
-    with glm_model(data_ratio):
-        num_samples = 1500
-        burn = 500
-        trace = pm.sample(draws=num_samples + burn, init="advi+adapt_diag")
-        mu = np.mean(trace[burn:]["mean"])
-        sigma = np.mean(trace[burn:]["std"])
-        return dict(design=design, mu=mu, sigma=sigma, ratio=ratio)
+    trace = lfc_model(data_ratio)
+
+    # Gather results
+    mu = np.mean(trace["mean"])
+    sigma = np.mean(trace["std"])
+
+    # Finish timing
+    end = time.time()
+    print(design, "took:", end - start)
+
+    # Output results
+    return dict(design=design, mu=mu, sigma=sigma, ratio=ratio)
 
 
-print("Performing Inference on Human Data")
-results_human = [
-    run_glm(i, j, "human", seqdata_human) for (i, j) in pairwise_combinations
-]
-print("Performing Inference on Drosophila Data")
-results_drosophila = [
-    run_glm(i, j, "drosophila", seqdata_drosophila)
-    for (i, j) in pairwise_combinations
-]
-print("Performing Inference on Merged Data")
-results_merged = [
-    run_glm(i, j, "merged", seqdata_merged) for (i, j) in pairwise_combinations
-]
+# Hacky way to run the model right now. Eventually this will need to
+# be formalized and cleaned up
+run_model = True
+last_run_path = "/home/zach/dowell_lab/virtual_spike_in/dat/last_run.pickle"
+iter_dat = None
+if run_model or not path.exists(last_run_path):
+    print("Performing Inference on Human Data")
+    results_human = [
+        run_normalization_model(i, j, "human", seqdata_human)
+        for (i, j) in pairwise_combinations
+    ]
+    print("Performing Inference on Drosophila Data")
+    results_drosophila = [
+        run_normalization_model(i, j, "drosophila", seqdata_drosophila)
+        for (i, j) in pairwise_combinations
+    ]
+    print("Performing Inference on Merged Data")
+    results_merged = [
+        run_normalization_model(i, j, "merged", seqdata_merged)
+        for (i, j) in pairwise_combinations
+    ]
+    # Merge data
+    iter_dat = list(
+        map(list, zip(*[results_human, results_drosophila, results_merged]))
+    )
+    # Write result
+    with open(last_run_path, "wb") as last_run:
+        pickle.dump(iter_dat, last_run)
+else:
+    with open(last_run_path, "wb") as last_run:
+        iter_dat = pickle.read(last_run)
 
 
 # Do output printing and quantitation
@@ -191,17 +220,6 @@ def plot_model_output(ax, result_human, result_drosophila, result_merge, n=100):
     ax.set_xlabel("Log(Normalization Factor)")
     ax.set_ylabel("Relative Proportion")
 
-
-# Merge data
-iter_dat = list(
-    map(list, zip(*[results_human, results_drosophila, results_merged]))
-)
-
-# Write result
-with open(
-    "/home/zach/dowell_lab/virtual_spike_in/dat/last_run.pickle", "wb"
-) as last_run:
-    pickle.dump(iter_dat, last_run)
 
 # Plot result naively
 ncol = 4
