@@ -48,12 +48,9 @@ from os import path
 import time
 
 # Constants required for now, eventually these will be parameterized
-count_data_human = (
-    "/home/zach/dowell_lab/virtual_spike_in/dat/counts_long_ends.txt"
-)
-count_data_drosophila = (
-    "/home/zach/dowell_lab/virtual_spike_in/dat/drosophila_counts_fix.txt"
-)
+baseDir = "/home/zach/Dropbox/phd/research/dna_lab/virtual_spike_in"
+count_data_human = f"{baseDir}/dat/counts_long_ends.txt"
+count_data_drosophila = f"{baseDir}/dat/drosophila_counts_fix.txt"
 # Samples can be specified in terms of a flat list or tuples of replicates
 # We ought to be able to infer these from counts data at some point
 samples = [
@@ -78,11 +75,14 @@ sample_cols = list(it.chain.from_iterable(samples))
 
 def import_count_data(data_csv_filename):
     """Generic wrapper for importing counts tables as a dataframe"""
-    return (
+    data = (
         pd.read_csv(data_csv_filename, sep="\t")
         .rename(columns=lambda x: re.sub(".sorted.bam", "", x))[sample_cols]
         .astype("float32")
     )
+    data["total"] = np.sum(data[7:], axis=1)
+    data = data[data["total"] > 0]
+    return data
 
 
 # Perform data import for each organism and merge the data
@@ -90,34 +90,61 @@ seqdata_human = import_count_data(count_data_human)
 seqdata_drosophila = import_count_data(count_data_drosophila)
 seqdata_merged = pd.concat([seqdata_human, seqdata_drosophila])
 
+print("Loaded")
 
 # We want every pairwise combination
 pairwise_combinations = list(it.combinations(sample_cols, 2))
 
 
-def lfc_model(obs, plot_model=False, num_samples=2000, burn=500):
+def lfc_model(obs, plot_model=False, num_samples=7500, burn=1000):
     """The definition for our linear log-fold change model"""
     with pm.Model() as model:
         # Calculate data for priors
-        data_var = np.var(obs)
-        data_mean = np.mean(obs)
+        # data_var = np.var(obs)
+        # data_mean = np.mean(obs)
+        data_var = 1
+        data_mean = 0
         # We expect variance to be positive, so use a Exponential. Half
         # cauchy also makes sure we won't hit invalid negative values
         std = pm.Exponential("std", lam=1 / data_var)
         # Normal or Cauchy works here, but the steepness of Cauchy
         # seems to make the model converge more effectively
-        mean = pm.Laplace("mean", mu=data_mean, b=data_var)
+        mean = pm.Normal("mean", mu=data_mean, sigma=data_var, testval=0.1)
         # Fold changes are log-normally distributed. By using the log
         # of the ratio, we transform it to be normally distributed,
         # making parameter inference simpler.
-        obs = pm.Normal("obs", mu=mean, sigma=std, observed=obs)
+        obs = pm.Normal("obs", mu=mean, sigma=std, observed=obs, testval=0.1)
 
         # Plot the model if we explicitly request it
         if plot_model:
             pm.model_to_graphviz(model).render("model_graph.gv")
 
-        # Run the actual sampling process
-        trace = pm.sample(draws=num_samples, tune=burn, init="auto",)
+        mcmc = True
+        # Run the actual sampling process in MCMC
+        if mcmc:
+            trace = pm.sample(
+                draws=num_samples,
+                tune=burn,
+                init="auto",
+            )
+        # Otherwise run variational inference using normalizing flows
+        else:
+            n, r = 10000, 0.1
+            tracker = pm.callbacks.Tracker()
+            trace_empirical = pm.fit(
+                int(1e5),
+                method="nfvi",
+                inf_kwargs=dict(n_particles=n),
+                obj_optimizer=pm.adamax(learning_rate=r),
+                progressbar=True,
+                callbacks=[
+                    pm.callbacks.CheckParametersConvergence(
+                        every=100, tolerance=1e-4, diff="relative"
+                    ),
+                    tracker,
+                ],
+            )
+            trace = trace_empirical.sample(draws=5000)
         return trace
 
 
@@ -132,7 +159,16 @@ def run_normalization_model(i, j, tag, data):
 
     # We express fold-changes in the log transformed form, since
     # log-transformed fold-change values are normally distributed.
-    data_ratio = np.log2(np.divide(np.add(data[i], 1), np.add(data[j], 1),))
+    data_ratio = np.log2(
+        np.divide(
+            data[i],
+            data[j],
+        )
+    )
+    # data_ratio = data_ratio[~np.isnan(data_ratio)]
+    # data_ratio = data_ratio[np.isfinite(data_ratio)]
+    data_ratio[np.isnan(data_ratio)] = 0
+    data_ratio[~np.isfinite(data_ratio)] = 0
     ratio = np.log2(spike_in_dict[i] / spike_in_dict[j])
 
     # Execute the model
@@ -144,7 +180,7 @@ def run_normalization_model(i, j, tag, data):
 
     # Finish timing
     end = time.time()
-    print(design, "took:", end - start)
+    print(f"{design} took: {end-start:.2f}s")
 
     # Output results
     return dict(design=design, mu=mu, sigma=sigma, ratio=ratio)
@@ -153,7 +189,7 @@ def run_normalization_model(i, j, tag, data):
 # Hacky way to run the model right now. Eventually this will need to
 # be formalized and cleaned up
 run_model = True
-last_run_path = "/home/zach/dowell_lab/virtual_spike_in/dat/last_run.pickle"
+last_run_path = f"{baseDir}/dat/last_run.pickle"
 iter_dat = None
 if run_model or not path.exists(last_run_path):
     print("Performing Inference on Human Data")
@@ -217,7 +253,7 @@ def plot_model_output(ax, result_human, result_drosophila, result_merge, n=100):
     ax.axvline(0, color="grey", linewidth=0.25)
     ax.annotate(f"fc = {pdiff:.3f}", xy=(0.1, 0.8), xycoords="axes fraction")
     ax.set_title(plot_title)
-    ax.set_xlabel("Log(Normalization Factor)")
+    ax.set_xlabel("Log_2(Normalization Factor)")
     ax.set_ylabel("Relative Proportion")
 
 
@@ -235,7 +271,7 @@ for idx, (result_human, result_drosophila, result_merged) in enumerate(
     )
 # lst = axs.flat[(ncol * nrow) - 1].axis("off")
 plt.savefig(
-    "/home/zach/dowell_lab/virtual_spike_in/dat/bayes_spike_in.pdf",
+    f"{baseDir}/dat/bayes_spike_in.pdf",
     format="pdf",
     orientation="landscape",
 )
