@@ -49,47 +49,6 @@ import pandas as pd
 import pymc3 as pm
 from tqdm import tqdm
 
-# Logger setup, only do once
-logSetup = False
-if not logSetup:
-    # Set up our module logger
-    logger = logging.getLogger("VSILogger")
-    logger.setLevel(logging.INFO)
-    fh = logging.StreamHandler()
-    fh.setLevel(logging.INFO)
-    formatter = logging.Formatter("%(asctime)s %(levelname)s:%(message)s")
-    fh.setFormatter(formatter)
-    logger.addHandler(fh)
-    # Disable most messages for pymc3 to not clutter logs
-    # pm_logger = logging.getLogger("pymc3")
-    # pm_logger.setLevel(logging.ERROR)
-    # logSetup = True
-
-# Constants required for now, eventually these will be parameterized
-baseDir = "/home/zach/Dropbox/phd/research/dna_lab/virtual_spike_in"
-count_data_human = f"{baseDir}/dat/counts_long_ends.txt"
-count_data_drosophila = f"{baseDir}/dat/drosophila_counts_fix.txt"
-# Samples can be specified in terms of a flat list or tuples of replicates
-# We ought to be able to infer these from counts data at some point
-samples = [
-    ("wt_U2OS_b1", "wt_U2OS_b2"),
-    ("dG3BP_U2OS_b1", "dG3BP_U2OS_b2"),
-    ("wt_1hAs_U2OS_b1", "wt_1hAs_U2OS_b2"),
-    ("dG3BP_1hAs_U2OS_b1", "dG3BP_1hAs_U2OS_b2"),
-]
-# Static spike-in values, eventually these will be obsolete
-spike_in_dict = dict(
-    wt_U2OS_b1=85780194,
-    wt_U2OS_b2=93689147,
-    dG3BP_U2OS_b1=58282107,
-    dG3BP_U2OS_b2=71052598,
-    wt_1hAs_U2OS_b1=91587100,
-    wt_1hAs_U2OS_b2=66604306,
-    dG3BP_1hAs_U2OS_b1=56958302,
-    dG3BP_1hAs_U2OS_b2=69950273,
-)
-sample_cols = list(it.chain.from_iterable(samples))
-
 
 def import_count_data(data_csv_filename):
     """Generic wrapper for importing counts tables as a dataframe"""
@@ -104,23 +63,12 @@ def import_count_data(data_csv_filename):
     return data
 
 
-# Perform data import for each organism and merge the data
-seqdata_human = import_count_data(count_data_human)
-seqdata_drosophila = import_count_data(count_data_drosophila)
-seqdata_merged = pd.concat([seqdata_human, seqdata_drosophila])
-logger.info(f"Merged VSI and Spike-In Data")
-
-
-# We want every pairwise combination
-pairwise_combinations = list(it.combinations(sample_cols, 2))
-
-
 def log2(x):
     """Wrapper to support log2 natively in pymc3"""
     return pm.math.log(x) / np.log(2)
 
 
-def lfc_model(obs, a, b, plot_model=False, num_samples=5_000, burn=2_500):
+def lfc_model(obs, a, b, plot_model=False, num_samples=10_000, burn=5_000):
     """The definition for our linear log-fold change model"""
     with pm.Model() as model:
         # Calculate data for priors
@@ -215,34 +163,6 @@ def run_normalization_model(i, j, tag, data):
     return dict(design=design, mu=mu, sigma=sigma, ratio=ratio)
 
 
-# Hacky way to run the model right now. Eventually this will need to
-# be formalized and cleaned up
-run_model = True
-last_run_path = f"{baseDir}/dat/last_run.pickle"
-iter_dat = []
-if run_model or not path.exists(last_run_path):
-    logger.info("Performing Inference on All Models")
-    for (i, j) in tqdm(pairwise_combinations, desc="Model Fits", unit="model"):
-        result_human = run_normalization_model(i, j, "human", seqdata_human)
-        result_drosophila = run_normalization_model(
-            i, j, "drosophila", seqdata_drosophila
-        )
-        result_merged = run_normalization_model(i, j, "merged", seqdata_merged)
-        iter_dat.append((result_human, result_drosophila, result_merged))
-    # Write result
-    with open(last_run_path, "wb") as last_run:
-        pickle.dump(iter_dat, last_run)
-        logger.info(f"Pickled results to {last_run_path}")
-else:
-    with open(last_run_path, "rb") as last_run:
-        iter_dat = pickle.load(last_run)
-        logger.info(f"Loaded results to {last_run_path}")
-
-
-# Do output printing and quantitation
-logger.info("Plotting Model Output")
-
-
 def plot_model_output(ax, result_human, result_drosophila, result_merge, n=250):
     # Grab Data
     plot_title = result_human["design"]
@@ -281,39 +201,120 @@ def plot_model_output(ax, result_human, result_drosophila, result_merge, n=250):
     logger.info(f"Plotted {plot_title}")
 
 
-# Plot result naively
-ncol = 4
-nrow = int(np.ceil(len(iter_dat) / ncol))
-fig, axs = plt.subplots(
-    nrow, ncol, constrained_layout=True, figsize=(18.0, 36.0)
-)
-for idx, (result_human, result_drosophila, result_merged) in enumerate(
-    iter_dat
-):
-    plot_model_output(
-        axs.flat[idx], result_human, result_drosophila, result_merged
-    )
-# lst = axs.flat[(ncol * nrow) - 1].axis("off")
-plt.savefig(
-    f"{baseDir}/dat/bayes_spike_in.pdf",
-    format="pdf",
-    orientation="landscape",
-)
+if __name__ == "__main__":
+    # Logger setup, only do once
+    logSetup = False
+    if not logSetup:
+        # Set up our module logger
+        logger = logging.getLogger("VSILogger")
+        logger.setLevel(logging.INFO)
+        fh = logging.StreamHandler()
+        fh.setLevel(logging.INFO)
+        formatter = logging.Formatter("%(asctime)s %(levelname)s:%(message)s")
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
+        # Disable most messages for pymc3 to not clutter logs
+        # pm_logger = logging.getLogger("pymc3")
+        # pm_logger.setLevel(logging.ERROR)
+        # logSetup = True
 
-# Generate a n x n matrix with more detailed plots
-# test_mat = np.zeros((8, 8))
-# mat_size = 8
-# for col in range(0, mat_size - 1):
-#     for row in range(col + 1, mat_size):
-#         test_mat[row, col] = -1
-#         test_mat[col, row] = 1
-#
-# x_lin = [i[1]["mu"] for i in iter_dat]
-# y_lin = [j[2]["mu"] for j in iter_dat]
-# fig, ax = plt.subplots(ncols=1)
-# ax.scatter(x_lin, y_lin)
-# lin = np.linspace(*ax.get_xlim())
-# ax.plot(lin, lin)
+    # Constants required for now, eventually these will be parameterized
+    baseDir = "/Users/zachmaas/Dropbox/phd/research/dna_lab/virtual_spike_in"
+    count_data_human = f"{baseDir}/dat/counts_long_ends.txt"
+    count_data_drosophila = f"{baseDir}/dat/drosophila_counts_fix.txt"
+    # Samples can be specified in terms of a flat list or tuples of replicates
+    # We ought to be able to infer these from counts data at some point
+    samples = [
+        ("wt_U2OS_b1", "wt_U2OS_b2"),
+        ("dG3BP_U2OS_b1", "dG3BP_U2OS_b2"),
+        ("wt_1hAs_U2OS_b1", "wt_1hAs_U2OS_b2"),
+        ("dG3BP_1hAs_U2OS_b1", "dG3BP_1hAs_U2OS_b2"),
+    ]
+    # Static spike-in values, eventually these will be obsolete
+    spike_in_dict = dict(
+        wt_U2OS_b1=85780194,
+        wt_U2OS_b2=93689147,
+        dG3BP_U2OS_b1=58282107,
+        dG3BP_U2OS_b2=71052598,
+        wt_1hAs_U2OS_b1=91587100,
+        wt_1hAs_U2OS_b2=66604306,
+        dG3BP_1hAs_U2OS_b1=56958302,
+        dG3BP_1hAs_U2OS_b2=69950273,
+    )
+    sample_cols = list(it.chain.from_iterable(samples))
+
+    # Perform data import for each organism and merge the data
+    seqdata_human = import_count_data(count_data_human)
+    seqdata_drosophila = import_count_data(count_data_drosophila)
+    seqdata_merged = pd.concat([seqdata_human, seqdata_drosophila])
+    logger.info(f"Merged VSI and Spike-In Data")
+
+    # We want every pairwise combination
+    pairwise_combinations = list(it.combinations(sample_cols, 2))
+
+    # Hacky way to run the model right now. Eventually this will need to
+    # be formalized and cleaned up
+    run_model = True
+    last_run_path = f"{baseDir}/dat/last_run.pickle"
+    iter_dat = []
+    if run_model or not path.exists(last_run_path):
+        logger.info("Performing Inference on All Models")
+        for (i, j) in tqdm(
+            pairwise_combinations, desc="Model Fits", unit="model"
+        ):
+            result_human = run_normalization_model(i, j, "human", seqdata_human)
+            result_drosophila = run_normalization_model(
+                i, j, "drosophila", seqdata_drosophila
+            )
+            result_merged = run_normalization_model(
+                i, j, "merged", seqdata_merged
+            )
+            iter_dat.append((result_human, result_drosophila, result_merged))
+        # Write result
+        with open(last_run_path, "wb") as last_run:
+            pickle.dump(iter_dat, last_run)
+            logger.info(f"Pickled results to {last_run_path}")
+    else:
+        with open(last_run_path, "rb") as last_run:
+            iter_dat = pickle.load(last_run)
+            logger.info(f"Loaded results to {last_run_path}")
+
+    # Do output printing and quantitation
+    logger.info("Plotting Model Output")
+
+    # Plot result naively
+    ncol = 4
+    nrow = int(np.ceil(len(iter_dat) / ncol))
+    fig, axs = plt.subplots(
+        nrow, ncol, constrained_layout=True, figsize=(18.0, 36.0)
+    )
+    for idx, (result_human, result_drosophila, result_merged) in enumerate(
+        iter_dat
+    ):
+        plot_model_output(
+            axs.flat[idx], result_human, result_drosophila, result_merged
+        )
+    # lst = axs.flat[(ncol * nrow) - 1].axis("off")
+    plt.savefig(
+        f"{baseDir}/dat/bayes_spike_in.pdf",
+        format="pdf",
+        orientation="landscape",
+    )
+
+    # Generate a n x n matrix with more detailed plots
+    # test_mat = np.zeros((8, 8))
+    # mat_size = 8
+    # for col in range(0, mat_size - 1):
+    #     for row in range(col + 1, mat_size):
+    #         test_mat[row, col] = -1
+    #         test_mat[col, row] = 1
+    #
+    # x_lin = [i[1]["mu"] for i in iter_dat]
+    # y_lin = [j[2]["mu"] for j in iter_dat]
+    # fig, ax = plt.subplots(ncols=1)
+    # ax.scatter(x_lin, y_lin)
+    # lin = np.linspace(*ax.get_xlim())
+    # ax.plot(lin, lin)
 
 
 #

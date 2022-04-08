@@ -10,11 +10,12 @@ python = ">=3.9,<3.11"
 numpy = "^1.18.1"
 scipy = "^1.7.0"
 pandas = "^1.0.1"
-pymc3 = "^3.10.0"
+pymc3 = "^3.11.0"
 aesara = "^2.5.3"
 tqdm = "^4.63.0"
 typer = "^0.4.0"
 click = "^8.0.4"
+graphviz = "^0.19.1"
 
 [tool.poetry.dev-dependencies]
 python-lsp-server = {extras = ["all"], version = "^1.4.1"}
