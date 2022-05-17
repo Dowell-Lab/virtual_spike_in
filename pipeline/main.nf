@@ -225,7 +225,7 @@ process runVSI {
 
 		script:
 		"""
-		python /scratch/Users/zama8258/virtual_spike_in/virtual_spike_in/main.py \
+		python3 /scratch/Users/zama8258/virtual_spike_in/virtual_spike_in/main.py \
 				--label "virtual" \
 				--outdir "${params.outdir}" \
 				--count-data "${counts_merged}" \

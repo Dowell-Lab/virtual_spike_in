@@ -29,6 +29,9 @@
 
 # Code:
 
+eval "$(pyenv init -)"
+eval "$(pyenv virtualenv-init -)"
+pyenv activate virtual_spike_in
 nextflow run main.nf -profile example -resume
 
 #

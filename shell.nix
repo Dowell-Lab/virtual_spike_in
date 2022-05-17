@@ -1,7 +1,7 @@
 { pkgs ? import <unstable> { overlays = [ (import ./overlay.nix) ]; } }:
 let
-	# Use clang
-	stdenv = pkgs.gccStdenv;
+  # Use clang
+  # stdenv = pkgs.gccStdenv;
   # Allow broken packages
   allowBroken = true;
   # Use darwin frameworks
@@ -21,18 +21,24 @@ in pkgs.mkShell {
 		pkgs.git
 		# C/C++ Dependencies
     pkgs.gcc
+    pkgs.gfortran
     pkgs.bedtools
     pkgs.blas
+    pkgs.gettext
+    pkgs.libiconv
     # Library Dependencies
     pkgs.netcdf
     pkgs.graphviz
     hdf5
-	  # Python Dependencies
+    # Python Dependencies
     pkgs.python39
     pkgs.poetry
     pkgs.python39Packages.python-lsp-server
-		# R Dependencies
-		pkgs.R
+    # R dependencies
+    pkgs.R
+    pkgs.rPackages.tidyverse
+    pkgs.rPackages.plyr
+    pkgs.rPackages.ggthemes
     # System dependencies
     frameworks.Accelerate
   ];
@@ -44,6 +50,7 @@ in pkgs.mkShell {
     export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${pkgs.hdf5}/lib
     export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${pkgs.netcdf}/lib
     export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${pkgs.graphviz}/lib
+    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${pkgs.gettext}/lib
   '';
 
 }

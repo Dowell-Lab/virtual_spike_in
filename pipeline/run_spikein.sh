@@ -29,7 +29,7 @@
 
 # Code:
 
-nextflow run main.nf -profile spikein -resume
+nextflow run main.nf -profile spikein
 
 #
 # run.sh ends here

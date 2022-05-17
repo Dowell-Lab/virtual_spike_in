@@ -54,11 +54,7 @@ full_dt <- full_dt %>%
 library("speedglm")
 reg <- function(df) {
     slopes <- c(
-        summary(lm(dg_mean   ~ 0 + dg1h_mean, data=df))$coefficients[1],
         summary(lm(dg_mean   ~ 0 + wt_mean, data=df  ))$coefficients[1],
-        summary(lm(dg_mean   ~ 0 + wt1h_mean, data=df))$coefficients[1],
-        summary(lm(dg1h_mean ~ 0 + wt_mean, data=df  ))$coefficients[1],
-        summary(lm(dg1h_mean ~ 0 + wt1h_mean, data=df))$coefficients[1],
         summary(lm(wt_mean   ~ 0 + wt1h_mean, data=df))$coefficients[1]
     )
     return(slopes)
@@ -72,13 +68,9 @@ reg <- function(df) {
 ## that using N^2 will give us close to optimal results. That will
 ## take too long on my laptop, so we'll just do 100k trials, which is
 ## about 10% of that value.
-sample_slopes <- pbreplicate(40000, reg(sample_frac(full_dt, 0.15, replace = TRUE)))
+sample_slopes <- pbreplicate(100000, reg(sample_frac(full_dt, 0.15, replace = TRUE)))
 slope_dist <- as_tibble(t(sample_slopes))
-colnames(slope_dist) <- c("dg_v_dg1h",
-                          "dg_v_wt",
-                          "dg_vs_wt1h",
-                          "dg1h_v_wt",
-                          "dg1h_v_wt1h",
+colnames(slope_dist) <- c("dg_v_wt",
                           "wt_v_wt1h")
 
 ## Mapped data stats
@@ -105,41 +97,16 @@ mapstats <- tibble(dg1h_1 = 56958302, dg1h_2 = 69950273, dg_1 = 58282107,
 ## Generate some distribution plots for the cross validation
 dg_v_wt_pl <- ggplot() +
     geom_density(data = slope_dist, aes(x = dg_v_wt)) +
-    geom_vline(data = mapstats, aes(xintercept = dg_v_wt)) +
-    labs(title = "dg_v_wt", x = "Slope",
-         y = "Proportion") + theme_tufte() + xlim(0, 2)
+    geom_vline(data = mapstats, aes(color = "red", xintercept = dg_v_wt), show.legend=FALSE) +
+    labs(title = "Mutant at 0hr vs Wild Type at 0hr", x = "Normalization Factor",
+         y = "Relative Proportion") + theme_tufte() + xlim(0, 2)
 wt_v_wt1h_pl <- ggplot() +
     geom_density(data = slope_dist, aes(x = wt_v_wt1h)) +
-    geom_vline(data = mapstats, aes(xintercept = wt_v_wt1h)) +
-    labs(title = "wt_v_wt1h", x = "Slope",
-         y = "Proportion") + theme_tufte() + xlim(0, 2)
-dg_v_wt1h_pl <- ggplot() +
-    geom_density(data = slope_dist, aes(x = dg_vs_wt1h)) +
-    geom_vline(data = mapstats, aes(xintercept = dg_vs_wt1h)) +
-    labs(title = "dg_v_wt1h", x = "Slope",
-         y = "Proportion") + theme_tufte() + xlim(0, 2)
-dg1h_v_wt1h_pl <- ggplot() +
-    geom_density(data = slope_dist, aes(x = dg1h_v_wt1h)) +
-    geom_vline(data = mapstats, aes(xintercept = dg1h_v_wt1h)) +
-    geom_vline(data = mapstats, aes(xintercept = dg1h_v_wt1h)) +
-    labs(title = "dg1h_v_wt1h", x = "Slope",
-         y = "Proportion") + theme_tufte() + xlim(0, 2)
-dg_v_dg1h_pl <- ggplot() +
-    geom_density(data = slope_dist, aes(x = dg_v_dg1h)) +
-    geom_vline(data = mapstats, aes(xintercept = dg_v_dg1h)) +
-    labs(title = "dg_v_dg1h", x = "Slope",
-         y = "Proportion") + theme_tufte() + xlim(0, 2)
-dg1h_v_wt_pl <- ggplot() +
-    geom_density(data = slope_dist, aes(x = dg1h_v_wt)) +
-    geom_vline(data = mapstats, aes(xintercept = dg1h_v_wt)) +
-    labs(title = "dg1h_v_wt", x = "Slope",
-         y = "Proportion") +
-    theme_tufte() +
-    xlim(0, 2)
-
-arr <- grid.arrange(dg_v_wt_pl, wt_v_wt1h_pl, dg_v_wt1h_pl,
-                    dg1h_v_wt1h_pl, dg_v_dg1h_pl, dg1h_v_wt_pl,
-                    nrow = 2,
+    geom_vline(data = mapstats, aes(color = "red", xintercept = wt_v_wt1h), show.legend=FALSE) +
+    labs(title = "Wild Type at 0hr vs Wild Type with 1hr Arsenic", x = "Normalization Factor",
+         y = "Relative Proportion") + theme_tufte() + xlim(0, 2)
+arr <- grid.arrange(dg_v_wt_pl, wt_v_wt1h_pl,
+                    nrow = 1,
                     top = "Long-Gene End Normalization Distribution vs Spike-In Normalization",
-                    bottom = "Vertical Lines are Spike-In, Distribution is Long Genes")
-ggsave("crossval_dist.pdf", arr, width = 10, height = 5, device = "pdf")
+                    bottom = "Vertical Lines use Spike-In, Distribution uses Ends of Long Genes")
+ggsave("virtual_spike_in_comparison.pdf", arr, width = 10, height = 5, device = "pdf")
