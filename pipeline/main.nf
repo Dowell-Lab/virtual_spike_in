@@ -47,7 +47,7 @@ if ( params.cramDir ) {
 
 		process cramToBam {
 		cpus 16
-		memory '32 GB'
+		memory '4 GB'
 		time '30m'
 		tag "$prefix"
 
@@ -84,7 +84,7 @@ if ( params.cramDir ) {
 if (params.filter == "yes") {
 		process filterIsoform {
 				cpus 4
-				memory '16.GB'
+				memory '4GB'
 				time '1h'
 				errorStrategy { task.exitStatus == 143 ? 'retry' : 'terminate' }
 				maxRetries 3
@@ -126,9 +126,9 @@ if (params.filter == "yes") {
 
 // Generate a SAF using filtered isoforms for nascent data
 process genIsoformSAF {
-		cpus 4
-		memory '16 GB'
-		time '1h'
+		cpus 1
+		memory '1GB'
+		time '10m'
 		tag "$prefix"
 		publishDir "${params.outdir}/isoform/", mode: 'copy', pattern: "isoform_max.gtf", overwrite: true
 		input:
@@ -153,10 +153,10 @@ allBam = bamInit
 
 // Step 2.1 -- Generate counts independently for speed
 process perSampleCounts {
-	cpus 8
-	memory '16 GB'
-	time '30m'
-  tag "$prefix"
+		cpus 8
+		memory '2 GB'
+		time '30m'
+		tag "$prefix"
   publishDir "${params.outdir}/counts/individual/", mode: 'copy', pattern: "counts*", overwrite: true
 	input:
 		each file(bam) from bamForCounts
@@ -216,8 +216,8 @@ process mergeIndividualCounts {
 
 process runVSI {
 		cpus 4
-		memory '16 GB'
- 		time '180m'
+		memory '64 GB'
+ 		time '720m'
 		tag "$prefix"
 		publishDir "${params.outdir}/vsi/", mode: 'copy', pattern: "*", overwrite: true
 		input:

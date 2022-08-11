@@ -36,6 +36,7 @@
 
 # Code:
 
+import setuptools
 import itertools as it
 import warnings
 import re
@@ -47,8 +48,9 @@ import scipy.stats as st
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-import pymc3 as pm
+import pymc as pm
 import arviz as az
+from sklearn.linear_model import LinearRegression
 from tqdm import tqdm
 
 
@@ -70,44 +72,60 @@ def import_count_data(data_csv_filename):
 
 def log2(x):
     """Wrapper to support log2 natively in pymc3"""
-    return pm.math.log(x) / np.log(2)
+    return pm.math.log(x) / pm.math.log(2)
+
+
+def laplace_inflated_log2_ratio(a, b):
+    """Take the log2 ratio of two things with laplace smoothing"""
+    return log2((a + 1) / (b + 1))
 
 
 def lfc_model(
-    obs,
+    obs_dat,
     a,
     b,
     diagnostic_prefix="DEBUG",
     plot_model=False,
-    num_samples=200_000,
-    burn=25_000,
+    num_samples=25_000,
+    burn=2_500,
 ):
     """The definition for our linear log-fold change model"""
     with pm.Model() as model:
         # Calculate data for priors
         # TODO Move NegBinom priors outside here for variance calculation
-        a_mu = np.mean(a + 1)
-        b_mu = np.mean(b + 1)
-        data_var = np.std((a + 1) / (b + 1))
+        a_mu = np.mean(a)
+        b_mu = np.mean(b)
+        data_var = np.std(np.abs(a - b))
         # Each of our data sets are negative binomial modeled as read counts
         # We use Laplace smoothing to avoid log problems
         a_dist = pm.NegativeBinomial("a_dat", mu=a_mu, alpha=0.5)
         b_dist = pm.NegativeBinomial("b_dat", mu=b_mu, alpha=0.5)
         # We expect variance to be positive, so use a Exponential. Half
         # cauchy also makes sure we won't hit invalid negative values
-        std = pm.Exponential("std", lam=1 / data_var)
+        # std = pm.Exponential("std_line", lam=1 / data_var)
+        std = pm.InverseGamma("std_line", mu=1, sigma=1)
         # Normal or Cauchy works here, but the steepness of Cauchy
         # seems to make the model converge more effectively
+        # laplace_ratio =
+        mean_std = pm.InverseGamma("std", mu=1, sigma=1)
         mean = pm.Normal(
             "mean",
-            mu=log2((a_dist) / (b_dist)),
-            sigma=data_var,
-            testval=1,
+            mu=a_dist / b_dist,
+            sigma=mean_std,
+            initval=1,
         )
+        intercept = pm.Normal("intercept", 0, sigma=1)
         # Fold changes are log-normally distributed. By using the log
         # of the ratio, we transform it to be normally distributed,
         # making parameter inference simpler.
-        obs = pm.Normal("obs", mu=mean, sigma=std, observed=obs, testval=1)
+        # obs = pm.Normal("obs", mu=mean, sigma=std, observed=obs, initval=0)
+        obs = pm.Normal(
+            "obs",
+            mu=mean * a + intercept,
+            sigma=std,
+            observed=b,
+            initval=1,
+        )
 
         # Plot the model if we explicitly request it
         if plot_model:
@@ -116,36 +134,40 @@ def lfc_model(
         # Run the actual sampling process in MCMC. The discrete
         # elements of the model preclude the use of variational
         # inference.
-        trace = pm.sample(
+        inferencedata = pm.sample(
             draws=num_samples,
             tune=burn,
             init="auto",
-            return_inferencedata=False,
-            progressbar=False,
+            target_accept=0.95,
+            # progressbar=False,
         )
         # Generate diagnostic arviz plots
-        az_data = az.from_pymc3(trace=trace)
-        az.plot_posterior(az_data)
+        az.plot_posterior(inferencedata)
         plt.savefig(
             f"{diagnostic_prefix}_posterior.pdf",
             format="pdf",
             orientation="landscape",
         )
-        az.plot_autocorr(az_data)
+        az.plot_autocorr(inferencedata)
         plt.savefig(
             f"{diagnostic_prefix}_autocorr.pdf",
             format="pdf",
             orientation="landscape",
         )
-        az.plot_trace(az_data)
+        az.plot_trace(inferencedata)
         plt.savefig(
             f"{diagnostic_prefix}_trace.pdf",
             format="pdf",
             orientation="landscape",
         )
-        # Remove samples used for initialization
-        trace_burned = trace[burn:]
-        return trace_burned
+        # az.plot_pair(inferencedata, divergences=True)
+        # plt.savefig(
+        #     f"{diagnostic_prefix}_divergences.pdf",
+        #     format="pdf",
+        #     orientation="landscape",
+        # )
+        plt.close("all")
+        return inferencedata
 
 
 def run_normalization_model(i, j, tag, data, logger):
@@ -160,45 +182,83 @@ def run_normalization_model(i, j, tag, data, logger):
 
     # We express fold-changes in the log transformed form, since
     # log-transformed fold-change values are normally distributed.
-    data_a = data[i]
-    data_b = data[j]
+    logger.debug(f"Using Laplace Smoothing on {design}")
+    data_a = data[i] + 1
+    data_b = data[j] + 1
     data_ratio = np.divide(data_a, data_b)
-    np.seterr(divide="ignore")
+    # np.seterr(divide="ignore")
     data_ratio = np.log2(
         data_ratio,
     )
-    # We fix errors in zero division further down using laplace smoothing
-    # TODO Maybe change impl to a +1 version for ease
-    np.seterr(divide="warn")
-    # Two different ways to handle this -- dropping zeros or coercing
-    # them to ones. Still need to handle small sample sizes...
-    logger.debug(f"Using Laplace Smoothing on {design}")
-    data_ratio[np.isnan(data_ratio)] = 0
-    data_ratio[~np.isfinite(data_ratio)] = 0
-    # TODO Deprecate
-    # else:
-    #     logger.info(f"Dropping zero values on {design}")
-    #     data_ratio = data_ratio[~np.isnan(data_ratio)]
-    #     data_ratio = data_ratio[np.isfinite(data_ratio)]
-    #     data_ratio = data_ratio[data_ratio != 0]
     logger.debug(f"Number of samples: {len(data_ratio)}")
-    # TODO Deprecate
-    # ratio = np.log2(spike_in_dict[i] / spike_in_dict[j])
 
     # Execute the model
     diagnostic_prefix = f"{tag}_{design}"
-    trace = lfc_model(data_ratio, data_a, data_b, diagnostic_prefix)
+    inferencedata = lfc_model(data_ratio, data_a, data_b, diagnostic_prefix)
+    post = inferencedata.posterior
+    burn = 2500  # Make a global var
+    posterior = post.sel(draw=slice(burn, None))
 
     # Gather results
-    mu = np.mean(trace["mean"])
-    sigma = np.mean(trace["std"])
+    # mu = 2 ** np.mean(posterior["mean"])  ## np.mean(trace["mean"]) ** 2
+    ## FIXME, is this exponentiated?
+    # sigma = 2 ** np.mean(posterior["std"])  ## p.mean(trace["std"]) ** 2
+    mean_dat = np.mean(posterior["mean"], axis=0)
+    std_dat = np.mean(posterior["std"], axis=0)
+    intercept_dat = np.mean(posterior["intercept"], axis=0)
+    mu = float(np.mean(mean_dat))
+    sigma = float(np.mean(std_dat))
+    intercept = float(np.mean(intercept_dat))
+
+    # Generate diagnostic plot compared to data
+    fig = plt.figure(figsize=(7, 7))
+    ax = fig.add_subplot(111, xlabel=i, ylabel=j, title="Data and Model")
+    ax.plot(data_a, data_b, ".", label="Observed Data")
+    x = np.linspace(min(data_a), max(data_a), 200)
+    # Plot the regression line
+    reg_line = mu * x + intercept
+    ax.plot(x, reg_line, label="Model Fit", lw=1.0, color="red")
+    # hdi = az.hdi(inferencedata)
+    # lower_line_hdi = float(hdi["mean"][0]) * x + intercept
+    # upper_line_hdi = float(hdi["mean"][1]) * x + intercept
+    # print(lower_line_hdi, upper_line_hdi)
+    # plt.fill_between(x, lower_line_hdi, upper_line_hdi, label="89% CI")
+    plt.legend(loc=0)
+    plt.savefig(
+        f"{diagnostic_prefix}_comparison.pdf",
+        format="pdf",
+        orientation="landscape",
+    )
 
     # Finish timing
     end = time.time()
     logger.debug(f"{design} took: {end-start:.2f}s")
 
     # Output results
-    return dict(design=design, mu=mu, sigma=sigma, ratio="deprecated")
+    return dict(
+        design=design,
+        mu=mu,
+        sigma=sigma,
+        intercept=intercept,
+        ratio="deprecated",
+    )
+
+
+def run_linear_model(i, j, tag, data, logger):
+    """Run a standard linear regression on the data"""
+
+    # Each run gets a unique design string
+    design = f"{i}_vs_{j}"
+    diagnostic_prefix = f"{tag}_{design}"
+
+    data_a = np.array(data[i]).reshape(-1, 1)
+    data_b = np.array(data[j]).reshape(-1, 1)
+
+    reg = LinearRegression().fit(data_a, data_b)
+    mu = reg.coef_[0][0]
+
+    # Output results
+    return dict(design=design, mu=mu, sigma="NA")
 
 
 def plot_model_output(ax, result, n=250):
@@ -208,7 +268,7 @@ def plot_model_output(ax, result, n=250):
     sigma = result["sigma"]
 
     # Generate points
-    x = np.linspace(-4, 4, n)
+    x = np.linspace(0, 2, n)
     y = st.norm.pdf(x, loc=mu, scale=sigma)
 
     # Perform plotting
@@ -267,32 +327,34 @@ def run_vsi(
     # Run each model
     # We want to allow any number of datasets to be used together
     # This just requires a small amount of reparameterization throughout
-    logger.info("Performing Inference on All Models")
-    iter_dat = []
     diagnostic_prefix = f"{outdir}/{label}"
-    for (i, j) in tqdm(
-        pairwise_combinations, desc="Pairwise Comparisons", unit="models"
+    for model, model_name in (
+        (run_linear_model, "linear"),
+        (run_normalization_model, "vsi"),
     ):
-        result = run_normalization_model(
-            i, j, diagnostic_prefix, seqdata, logger
-        )
-        iter_dat.append(result)
-    # Write size factors out
-    size_factor_path = f"{outdir}/{label}_size_factors.txt"
-    with open(size_factor_path, "w+") as out_file_handle:
-        for result in iter_dat:
-            # Get our parameters for normalization, adjusted back to normal space
-            # FIXME is exponentiating the variance correct?
-            design = result["design"]
-            mu = 2 ** result["mu"]
-            sigma = 2 ** result["sigma"]
-            # Write each to file
-            out_file_handle.write(f"{design}\t{mu}\t{sigma}\n")
+        iter_dat = []
+        logger.info(f"Performing Inference on {model_name} Models")
+        for (i, j) in tqdm(
+            pairwise_combinations, desc="Pairwise Comparisons", unit="models"
+        ):
+            ## We run j vs i to match the standard normalization multiplier
+            result = model(j, i, diagnostic_prefix, seqdata, logger)
+            iter_dat.append(result)
+        # Write size factors out
+        size_factor_path = f"{outdir}/{label}_{model_name}_size_factors.txt"
+        with open(size_factor_path, "w+") as out_file_handle:
+            for result in iter_dat:
+                # Gt our parameters for normalization, adjusted back to normal space
+                design = result["design"]
+                mu = result["mu"]
+                sigma = result["sigma"]
+                # Write each to file
+                out_file_handle.write(f"{design}\t{mu}\t{sigma}\n")
 
-    last_run_path = f"{outdir}/{label}_last_run.pickle"
-    with open(last_run_path, "wb") as last_run:
-        pickle.dump(iter_dat, last_run)
-        logger.info(f"Pickled results to {last_run_path}")
+        last_run_path = f"{outdir}/{model_name}_last_run.pickle"
+        with open(last_run_path, "wb") as last_run:
+            pickle.dump(iter_dat, last_run)
+            logger.info(f"Pickled results to {last_run_path}")
 
     if generate_plots:
         # Do output printing and quantitation
@@ -312,28 +374,6 @@ def run_vsi(
             format="pdf",
             orientation="landscape",
         )
-
-        # Generate a n x n matrix with more detailed plots
-        # test_mat = np.zeros((8, 8))
-        # mat_size = 8
-        # for col in range(0, mat_size - 1):
-        #     for row in range(col + 1, mat_size):
-        #         test_mat[row, col] = -1
-        #         test_mat[col, row] = 1
-        #
-        # x_lin = [i[1]["mu"] for i in iter_dat]
-        # y_lin = [j[2]["mu"] for j in iter_dat]
-        # fig, ax = plt.subplots(ncols=1)
-        # ax.scatter(x_lin, y_lin)
-        # lin = np.linspace(*ax.get_xlim())
-        # ax.plot(lin, lin)
-
-
-if __name__ == "__main__":
-    baseDir = "/Users/zachmaas/Dropbox/phd/research/dna_lab/virtual_spike_in"
-    count_data = f"{baseDir}/dat/counts_long_ends.txt"
-    count_data_spike_in = f"{baseDir}/dat/drosophila_counts_fix.txt"
-    run_vsi()
 
 
 #
