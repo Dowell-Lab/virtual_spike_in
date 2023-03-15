@@ -81,25 +81,23 @@ def laplace_inflated_log2_ratio(a, b):
 
 
 def lfc_model(
-    obs_dat,
-    a,
-    b,
+    x,
+    y,
     diagnostic_prefix="DEBUG",
-    plot_model=False,
+    plot_model=True,
     num_samples=25_000,
     burn=2_500,
 ):
     """The definition for our linear log-fold change model"""
     with pm.Model() as model:
         # Calculate data for priors
-        # TODO Move NegBinom priors outside here for variance calculation
-        a_mu = np.mean(a)
-        b_mu = np.mean(b)
-        data_var = np.std(np.abs(a - b))
+        x_mu = np.mean(x)
+        y_mu = np.mean(y)
+        data_var = np.std(np.abs(x - y))
         # Each of our data sets are negative binomial modeled as read counts
         # We use Laplace smoothing to avoid log problems
-        a_dist = pm.NegativeBinomial("a_dat", mu=a_mu, alpha=0.5)
-        b_dist = pm.NegativeBinomial("b_dat", mu=b_mu, alpha=0.5)
+        x_dist = pm.NegativeBinomial("x_dat", mu=x_mu, alpha=0.5)
+        y_dist = pm.NegativeBinomial("y_dat", mu=y_mu, alpha=0.5)
         # We expect variance to be positive, so use a Exponential. Half
         # cauchy also makes sure we won't hit invalid negative values
         # std = pm.Exponential("std_line", lam=1 / data_var)
@@ -110,8 +108,8 @@ def lfc_model(
         mean_std = pm.InverseGamma("std", mu=1, sigma=1)
         mean = pm.Normal(
             "mean",
-            mu=a_dist / b_dist,
-            sigma=mean_std,
+            mu=log2(y_dist / x_dist),
+            sigma=mean_std,  ## Isn't this the std of the ratio distribution?
             initval=1,
         )
         intercept = pm.Normal("intercept", 0, sigma=1)
@@ -121,9 +119,9 @@ def lfc_model(
         # obs = pm.Normal("obs", mu=mean, sigma=std, observed=obs, initval=0)
         obs = pm.Normal(
             "obs",
-            mu=mean * a + intercept,
+            mu=2 ** (mean) * x + intercept,
             sigma=std,
-            observed=b,
+            observed=y,
             initval=1,
         )
 
@@ -183,18 +181,13 @@ def run_normalization_model(i, j, tag, data, logger):
     # We express fold-changes in the log transformed form, since
     # log-transformed fold-change values are normally distributed.
     logger.debug(f"Using Laplace Smoothing on {design}")
-    data_a = data[i] + 1
-    data_b = data[j] + 1
-    data_ratio = np.divide(data_a, data_b)
-    # np.seterr(divide="ignore")
-    data_ratio = np.log2(
-        data_ratio,
-    )
-    logger.debug(f"Number of samples: {len(data_ratio)}")
+    data_x = data[i] + 1
+    data_y = data[j] + 1
+    logger.debug(f"Number of samples: {len(data_x)}")
 
     # Execute the model
     diagnostic_prefix = f"{tag}_{design}"
-    inferencedata = lfc_model(data_ratio, data_a, data_b, diagnostic_prefix)
+    inferencedata = lfc_model(data_x, data_y, diagnostic_prefix)
     post = inferencedata.posterior
     burn = 2500  # Make a global var
     posterior = post.sel(draw=slice(burn, None))
@@ -206,15 +199,15 @@ def run_normalization_model(i, j, tag, data, logger):
     mean_dat = np.mean(posterior["mean"], axis=0)
     std_dat = np.mean(posterior["std"], axis=0)
     intercept_dat = np.mean(posterior["intercept"], axis=0)
-    mu = float(np.mean(mean_dat))
+    mu = 2 ** float(np.mean(mean_dat))
     sigma = float(np.mean(std_dat))
     intercept = float(np.mean(intercept_dat))
 
     # Generate diagnostic plot compared to data
     fig = plt.figure(figsize=(7, 7))
-    ax = fig.add_subplot(111, xlabel=i, ylabel=j, title="Data and Model")
-    ax.plot(data_a, data_b, ".", label="Observed Data")
-    x = np.linspace(min(data_a), max(data_a), 200)
+    ax = fig.add_subplot(111, ylabel=i, xlabel=j, title="Data and Model")
+    ax.plot(data_x, data_y, ".", label="Observed Data")
+    x = np.linspace(min(data_x), max(data_x), 200)
     # Plot the regression line
     reg_line = mu * x + intercept
     ax.plot(x, reg_line, label="Model Fit", lw=1.0, color="red")
@@ -251,10 +244,10 @@ def run_linear_model(i, j, tag, data, logger):
     design = f"{i}_vs_{j}"
     diagnostic_prefix = f"{tag}_{design}"
 
-    data_a = np.array(data[i]).reshape(-1, 1)
-    data_b = np.array(data[j]).reshape(-1, 1)
+    data_x = np.array(data[i]).reshape(-1, 1)
+    data_y = np.array(data[j]).reshape(-1, 1)
 
-    reg = LinearRegression().fit(data_a, data_b)
+    reg = LinearRegression(fit_intercept=True).fit(data_x, data_y)
     mu = reg.coef_[0][0]
 
     # Output results
@@ -321,7 +314,6 @@ def run_vsi(
     if do_combinatorial:
         pairwise_combinations = list(it.combinations(sample_names, 2))
     else:
-        # TODO Fix
         pairwise_combinations = [(sample_names[0], x) for x in sample_names[1:]]
 
     # Run each model

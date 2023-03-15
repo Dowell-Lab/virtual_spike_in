@@ -14,4 +14,19 @@ self: super: {
 	       ];
     }
 	);
-}
+  # Override genefilter dependencies
+  genefilter = super.rPackages.genefilter.overrideAttrs (
+    old: {
+	    buildInputs = old.buildInputs ++ [super.pkgs.libiconv];
+    }
+  );
+  # rPackages = super.rPackages.override {
+  #   packageOverrides = R-self: R-super: {
+  #     genefilter = super.rPackages.genefilter.overrideAttrs (
+  #       old: {
+	#         buildInputs = old.buildInputs ++ [super.pkgs.libiconv];
+  #       }
+  #     );
+  #   };
+  # };
+  }

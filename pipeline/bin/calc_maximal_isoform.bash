@@ -164,7 +164,8 @@ sort -rnk7 "$NegStrandFpkmNormalizedSums" | sort -u -k4 | sort -k 1,1 -k2,2n > "
 wait
 
 ## Merge the two strands together. No sorting	is necessary yet, so save the bandwidth.
-cat	"$PosStrandFinalSorted"	"$NegStrandFinalSorted" | sed -e 's/\.[0-9]\t/\t/' > "$StrandsMerged"
+# cat	"$PosStrandFinalSorted"	"$NegStrandFinalSorted" | sed -e 's/\.[0-9]\t/\t/' > "$StrandsMerged"
+cat	"$PosStrandFinalSorted"	"$NegStrandFinalSorted" > "$StrandsMerged"
 
 ## Next, we use a supplementary python script to add common gene ID's
 ## so that we can filter out isoforms from our final file.

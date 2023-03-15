@@ -29,13 +29,18 @@ with open(LABELS) as f:
         DIC[curr_line[0]] = curr_line[1]
 
 ## Iterate over the file and append our new key to the end of the file
+total_keys = 0
+missing_keys = 0
 with open(OUTFILE, "w+") as out:
     with open(FILE) as f:
         for line in f:
+            total_keys += 1
             curr_line = line.split()
             newline = line.strip()
             try:
                 newitem = DIC[curr_line[3]]  # 3rd line is ID
             except KeyError:
+                missing_keys += 1
                 continue
             out.write(newline + "\t" + newitem + "\n")
+print(f"{(missing_keys / total_keys)*100}% of keys not found")
