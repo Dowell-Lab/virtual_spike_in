@@ -39,6 +39,13 @@ library('lubridate')
 ## Read in data
 ## dm6_size <- 143726002 ## Whole Genome Depth
 dm6_size <- 30000000 ## Transcriptome Depth
+experiments <- c("Aoi2020nelf", "Barbieri2020rapid",
+                 "Birkenheuer2018herpes", "Birkenheuer2020rna",
+                 "Dukler2017nascent", "Fan2020drb",
+                 "Jaeger2020selective", "Leroy2019ledgf",
+                 "Liu2021transcription", "Rao2017cohesin",
+                 "Santoriello2020rna", "Sendinc2019pcif1",
+                 "Takahashi2020role", "Vihervaara2021stress")
 ## baseDir <- "/Users/zachmaas/Dropbox/phd/research/dna_lab/virtual_spike_in/dat/replicates/"
 baseDir <- "/Users/zachmaas/Dropbox/phd/research/dna_lab/virtual_spike_in/dat/"
 res_vsi_human <- read_delim(paste0(baseDir, "all_virtual_human.txt"),
@@ -93,8 +100,28 @@ res_all <- res_vsi_human %>%
            proportion_reference = depth_reference / dm6_size,
            proportion_sample = depth_sample / dm6_size,
            coverage_sample = proportion_sample*150,
-           coverage_reference = proportion_reference*150) ##%>%
-## filter(coverage_sample > 10 & coverage_reference > 10)
+           coverage_reference = proportion_reference*150) %>%
+    filter(experiment %in% experiments)
+conds_to_factor <- function(good_timepoint, good_depth) {
+    if (good_timepoint == 1 & good_depth == 1) {
+        return("All Assumptions Met")
+    } else if (good_timepoint == 1 & good_depth == 0) {
+        return("Low Depth")
+    } else if (good_timepoint == 0 & good_depth == 1) {
+        return("Long Timepoint")
+    } else {
+        return ("All Assumptions Violated")
+    }
+}
+res_all <- res_all %>% mutate(good_timepoint =
+                                  coalesce(as.integer(
+                                      time_sample < duration("1h")), 0),
+                              good_depth = coalesce(as.integer(
+                                  coverage_sample > 10), 0),
+                              both = as.factor(
+                                  mapply(conds_to_factor,
+                                         as.integer(good_timepoint),
+                                         as.integer(good_depth))))
 nrow(res_all)
 n_expt <- length(unique(res_all$experiment))
 n_sample <- length(unique(res_all$sample))
@@ -115,10 +142,9 @@ plt_1 <- ggplot(data = res_all) +
     geom_vline(xintercept = 0, linetype = 'dotted', color = "black") +
     geom_hline(yintercept = 0, linetype = 'dotted', color = "black") +
     geom_abline(slope = 1, intercept=0, linetype = 'dashed', color = "red") +
-    xlim(c(-5,5)) + ylim(c(-5,5)) +
-    coord_fixed() +
+    coord_fixed(xlim=c(-5,5), ylim=c(-5,5)) +
     theme_tufte() +
-    theme(text=element_text(family="Helvetica")) +
+    theme(text=element_text(family="Helvetica", size=16)) +
     labs(
         title = "Method Similarity (3'): VSI/Linear",
         x = "Log2(Size Factor Linear)",
@@ -143,10 +169,9 @@ plt_2 <- ggplot(data = res_all) +
     geom_vline(xintercept = 0, linetype = 'dotted', color = "black") +
     geom_hline(yintercept = 0, linetype = 'dotted', color = "black") +
     geom_abline(slope = 1, intercept=0, linetype = 'dashed', color = "red") +
-    xlim(c(-5,5)) + ylim(c(-5,5)) +
-    coord_fixed() +
+    coord_fixed(xlim=c(-5,5), ylim=c(-5,5)) +
     theme_tufte() +
-    theme(text=element_text(family="Helvetica")) +
+    theme(text=element_text(family="Helvetica", size=16)) +
     labs(
         title = "Method Similarity (Drosophila): VSI/Linear",
         x = "Log2(Size Factor Linear)",
@@ -166,10 +191,9 @@ plt_3 <- ggplot(data = res_all) +
     geom_vline(xintercept = 0, linetype = 'dotted', color = "black") +
     geom_hline(yintercept = 0, linetype = 'dotted', color = "black") +
     geom_abline(slope = 1, intercept=0, linetype = 'dashed', color = "red") +
-    xlim(c(-5,5)) + ylim(c(-5,5)) +
-    coord_fixed() +
+    coord_fixed(xlim=c(-5,5), ylim=c(-5,5)) +
     theme_tufte() +
-    theme(text=element_text(family="Helvetica")) +
+    theme(text=element_text(family="Helvetica", size=16)) +
     labs(
         title = "Exogenous Estimate Similarity (Linear/Point)",
         x = "Log2(Size Factor Linear Model)",
@@ -179,7 +203,7 @@ plt_3 <- ggplot(data = res_all) +
     )
 ggsave("mapped_vs_linear_drosophila.pdf", width = 9, height = 9)
 
-plt_4 <- ggplot(data = res_all %>% filter(coverage_sample > 10)) +
+plt_4 <- ggplot(data = res_all %>% filter(both == "All Assumptions Met")) +
     geom_point(aes(
         x = log2(factor_virtual_drosophila),
         y = log2(factor_mapped),
@@ -194,9 +218,9 @@ plt_4 <- ggplot(data = res_all %>% filter(coverage_sample > 10)) +
     geom_vline(xintercept = 0, linetype = 'dotted', color = "black") +
     geom_hline(yintercept = 0, linetype = 'dotted', color = "black") +
     geom_abline(slope = 1, intercept=0, linetype = 'dashed', color = "red") +
-    xlim(c(-5,5)) + ylim(c(-2.5,2.5)) +
+    coord_cartesian(xlim=c(-5,5), ylim=c(-2.5,2.5)) +
     theme_tufte() +
-    theme(text=element_text(family="Helvetica")) +
+    theme(text=element_text(family="Helvetica", size=16)) +
     labs(
         title = "Exogenous Estimate Similarity (VSI/Point)",
         x = "Log2(Size Factor VSI Exogenous)",
@@ -216,10 +240,9 @@ plt_5 <- ggplot(data = res_all) +
     geom_vline(xintercept = 0, linetype = 'dotted', color = "black") +
     geom_hline(yintercept = 0, linetype = 'dotted', color = "black") +
     geom_abline(slope = 1, intercept=0, linetype = 'dashed', color = "red") +
-    xlim(c(-5,5)) + ylim(c(-5,5)) +
-    ## coord_fixed() +
+    coord_fixed(xlim=c(-5,5), ylim=c(-5,5)) +
     theme_tufte() +
-    theme(text=element_text(family="Helvetica")) +
+    theme(text=element_text(family="Helvetica", size=16)) +
     labs(
         title = "Mapped Ratio / 3' Linear",
         x = "Log2(Size Factor Linear Model)",
@@ -244,10 +267,9 @@ plt_6 <- ggplot(data = res_all) +
     geom_vline(xintercept = 0, linetype = 'dotted', color = "black") +
     geom_hline(yintercept = 0, linetype = 'dotted', color = "black") +
     geom_abline(slope = 1, intercept=0, linetype = 'dashed', color = "red") +
-    xlim(c(-5,5)) + ylim(c(-5,5)) +
-    ## coord_fixed() +
+    coord_fixed(xlim=c(-5,5), ylim=c(-5,5)) +
     theme_tufte() +
-    theme(text=element_text(family="Helvetica")) +
+    theme(text=element_text(family="Helvetica", size=16)) +
     labs(
         title = "Mapped Ratio / 3' VSI",
         x = "Log2(Size Factor VSI 3')",
@@ -268,10 +290,9 @@ plt_7 <- ggplot(data = res_all) +
     geom_vline(xintercept = 0, linetype = 'dotted', color = "black") +
     geom_hline(yintercept = 0, linetype = 'dotted', color = "black") +
     geom_abline(slope = 1, intercept=0, linetype = 'dashed', color = "red") +
-    xlim(c(-5,5)) + ylim(c(-5,5)) +
-    coord_fixed() +
+    coord_fixed(xlim=c(-5,5), ylim=c(-5,5)) +
     theme_tufte() +
-    theme(text=element_text(family="Helvetica")) +
+    theme(text=element_text(family="Helvetica", size=16)) +
     labs(
         title = "Linear 3' / Linear Drosophila",
         x = "Log2(Size Factor Linear 3')",
@@ -281,9 +302,7 @@ plt_7 <- ggplot(data = res_all) +
     )
 ggsave("human_vs_drosophila_linear.pdf", width = 9, height = 9)
 
-plt_8 <- ggplot(data = res_all %>%
-                    filter(coverage_sample > 10 &
-                           time_sample <= duration("1h"))) +
+plt_8 <- ggplot(data = res_all %>% filter(both == "All Assumptions Met")) +
     geom_point(aes(
         x = log2(factor_virtual_human),
         y = log2(factor_virtual_drosophila),
@@ -300,10 +319,9 @@ plt_8 <- ggplot(data = res_all %>%
     geom_vline(xintercept = 0, linetype = 'dotted', color = "black") +
     geom_hline(yintercept = 0, linetype = 'dotted', color = "black") +
     geom_abline(slope = 1, intercept=0, linetype = 'dashed', color = "red") +
-    xlim(c(-5,5)) + ylim(c(-5,5)) +
-    coord_fixed() +
+    coord_fixed(xlim=c(-5,5), ylim=c(-5,5)) +
     theme_tufte() +
-    theme(text=element_text(family="Helvetica")) +
+    theme(text=element_text(family="Helvetica", size=16)) +
     labs(
         title = "VSI 3' / VSI Drosophila",
         x = "Log2(Size Factor VSI 3')",
@@ -313,9 +331,7 @@ plt_8 <- ggplot(data = res_all %>%
     )
 ggsave("human_vs_drosophila_virt.pdf", width = 9, height = 9)
 
-ggplot(data = res_all %>%
-           filter(coverage_sample <= 10 |
-                  time_sample > duration("1h"))) +
+ggplot(data = res_all %>% filter(both != "All Assumptions Met")) +
     geom_point(aes(
         x = log2(factor_virtual_human),
         y = log2(factor_virtual_drosophila),
@@ -332,10 +348,9 @@ ggplot(data = res_all %>%
     geom_vline(xintercept = 0, linetype = 'dotted', color = "black") +
     geom_hline(yintercept = 0, linetype = 'dotted', color = "black") +
     geom_abline(slope = 1, intercept=0, linetype = 'dashed', color = "red") +
-    xlim(c(-5,5)) + ylim(c(-5,5)) +
-    coord_fixed() +
+    coord_fixed(xlim=c(-5,5), ylim=c(-5,5)) +
     theme_tufte() +
-    theme(text=element_text(family="Helvetica")) +
+    theme(text=element_text(family="Helvetica", size=16)) +
     labs(
         title = "VSI 3' / VSI Drosophila",
         x = "Log2(Size Factor VSI 3')",
@@ -362,10 +377,9 @@ ggplot(data = res_all %>%
     geom_vline(xintercept = 0, linetype = 'dotted', color = "black") +
     geom_hline(yintercept = 0, linetype = 'dotted', color = "black") +
     geom_abline(slope = 1, intercept=0, linetype = 'dashed', color = "red") +
-    xlim(c(-5,5)) + ylim(c(-5,5)) +
-    coord_fixed() +
+    coord_fixed(xlim=c(-5,5), ylim=c(-5,5)) +
     theme_tufte() +
-    theme(text=element_text(family="Helvetica")) +
+    theme(text=element_text(family="Helvetica", size=16)) +
     labs(
         title = "VSI 3' / VSI Drosophila",
         x = "Log2(Size Factor VSI 3')",
@@ -392,10 +406,9 @@ ggplot(data = res_all %>%
     geom_vline(xintercept = 0, linetype = 'dotted', color = "black") +
     geom_hline(yintercept = 0, linetype = 'dotted', color = "black") +
     geom_abline(slope = 1, intercept=0, linetype = 'dashed', color = "red") +
-    xlim(c(-5,5)) + ylim(c(-5,5)) +
-    coord_fixed() +
+    coord_fixed(xlim=c(-5,5), ylim=c(-5,5)) +
     theme_tufte() +
-    theme(text=element_text(family="Helvetica")) +
+    theme(text=element_text(family="Helvetica", size=16)) +
     labs(
         title = "VSI 3' / VSI Drosophila",
         x = "Log2(Size Factor VSI 3')",
@@ -418,27 +431,7 @@ print(cor(res_all$factor_virtual_human, res_all$factor_virtual_drosophila, use =
 ################################
 ## plot based on data quality ##
 ################################
-conds_to_factor <- function(good_timepoint, good_depth) {
-    if (good_timepoint == 1 & good_depth == 1) {
-        return("All Assumptions Met")
-    } else if (good_timepoint == 1 & good_depth == 0) {
-        return("Low Depth")
-    } else if (good_timepoint == 0 & good_depth == 1) {
-        return("Long Timepoint")
-    } else {
-        return ("All Assumptions Violated")
-    }
-}
-res_all <- res_all %>% mutate(good_timepoint =
-                                  coalesce(as.integer(
-                                      time_sample < duration("1h")), 0),
-                              good_depth = coalesce(as.integer(
-                                  coverage_sample > 10), 0),
-                              both = as.factor(
-                                  mapply(conds_to_factor,
-                                         as.integer(good_timepoint),
-                                         as.integer(good_depth))))
-plot_with_assumption_colors <- function(color_values, levels, plot_file, label) {
+plot_with_assumption_colors <- function(color_values, levels, plot_file, label, error_set) {
     if (label) {
         labels <- labs(
             title = "VSI 3' / VSI Drosophila - goodness",
@@ -457,32 +450,43 @@ plot_with_assumption_colors <- function(color_values, levels, plot_file, label) 
     res_sorted <- res_all %>%
         mutate(both = factor(both, levels=levels)) %>%
         arrange(both)
+    ## Universal Plotting
     plt <- ggplot(data = res_sorted) +
         geom_point(aes(
             x = log2(factor_virtual_human),
             y = log2(factor_virtual_drosophila),
-            color = both), size=size) +
-        ## geom_errorbar(aes(x=log2(factor_virtual_human),
-        ##                   ymin=log2(factor_virtual_drosophila)-var_virtual_drosophila,
-        ##                   ymax=log2(factor_virtual_drosophila)+var_virtual_drosophila,
-        ##                   color=both)) +
-        ## geom_errorbarh(aes(y=log2(factor_virtual_drosophila),
-        ##                    xmin=log2(factor_virtual_human)-var_virtual_human,
-        ##                    xmax=log2(factor_virtual_human)+var_virtual_human,
-        ##                    color=both)) +
-        scale_color_manual(values = color_values) +
+            color = both), size=size)
+    ## Conditional Error Bars
+    if (length(error_set) > 0) {
+        res_filt <- res_sorted %>% filter(both %in% error_set)
+        plt <- plt +
+            geom_errorbar(data = res_filt,
+                          aes(x=log2(factor_virtual_human),
+                              ymin=log2(factor_virtual_drosophila)-var_virtual_drosophila,
+                              ymax=log2(factor_virtual_drosophila)+var_virtual_drosophila,
+                              color=both)) +
+            geom_errorbarh(data = res_filt,
+                           aes(y=log2(factor_virtual_drosophila),
+                               xmin=log2(factor_virtual_human)-var_virtual_human,
+                               xmax=log2(factor_virtual_human)+var_virtual_human,
+                               color=both))
+    }
+    ## Add decoration
+    plt + scale_color_manual(values = color_values) +
         geom_vline(xintercept = 0, linetype = 'dotted', color = "black") +
         geom_hline(yintercept = 0, linetype = 'dotted', color = "black") +
         geom_abline(slope = 1, intercept=0, linetype = 'dashed', color = "red") +
-        lims(x=c(-5,5), y=c(-5,5)) +
-        coord_fixed() +
+        coord_fixed(xlim=c(-5,5), ylim=c(-5,5)) +
         theme_tufte() +
         labels + guides +
-        theme(text=element_text(family="Helvetica"),
-              legend.position="top")
+            theme(text=element_text(family="Helvetica", size=16),
+                  legend.position="top")
     ggsave(plot_file, width = 9, height = 9)
     return(plt)
 }
+##############################
+## Plots without error bars ##
+##############################
 g1 <- plot_with_assumption_colors(c("All Assumptions Met" = "darkgreen",
                                     "All Assumptions Violated" = "red",
                               "Low Depth" = "orange",
@@ -492,7 +496,8 @@ g1 <- plot_with_assumption_colors(c("All Assumptions Met" = "darkgreen",
                               "Low Depth",
                               "Long Timepoint"),
                             "greyout_full.pdf",
-                            TRUE)
+                            TRUE,
+                            "")
 g2 <- plot_with_assumption_colors(c("All Assumptions Met" = "darkgreen",
                                     "All Assumptions Violated" = "aliceblue",
                                     "Low Depth" = "aliceblue",
@@ -502,7 +507,8 @@ g2 <- plot_with_assumption_colors(c("All Assumptions Met" = "darkgreen",
                               "Low Depth",
                               "All Assumptions Met"),
                             "greyout_all.pdf",
-                            FALSE)
+                            FALSE,
+                            "")
 g3 <- plot_with_assumption_colors(c("All Assumptions Met" = "aliceblue",
                                     "All Assumptions Violated" = "red",
                                     "Low Depth" = "aliceblue",
@@ -512,7 +518,8 @@ g3 <- plot_with_assumption_colors(c("All Assumptions Met" = "aliceblue",
                               "Low Depth",
                               "All Assumptions Violated"),
                             "greyout_none.pdf",
-                            FALSE)
+                            FALSE,
+                            "")
 g4 <- plot_with_assumption_colors(c("All Assumptions Met" = "aliceblue",
                                     "All Assumptions Violated" = "aliceblue",
                                     "Low Depth" = "orange",
@@ -522,7 +529,8 @@ g4 <- plot_with_assumption_colors(c("All Assumptions Met" = "aliceblue",
                               "Long Timepoint",
                               "Low Depth"),
                             "greyout_low.pdf",
-                            FALSE)
+                            FALSE,
+                            "")
 g5 <- plot_with_assumption_colors(c("All Assumptions Met" = "aliceblue",
                                     "All Assumptions Violated" = "aliceblue",
                                     "Low Depth" = "aliceblue",
@@ -532,19 +540,86 @@ g5 <- plot_with_assumption_colors(c("All Assumptions Met" = "aliceblue",
                               "Low Depth",
                               "Long Timepoint"),
                             "greyout_long.pdf",
-                            FALSE)
-layout <- "
-##AAAA
-##AAAA
-BBAAAA
-BBAAAA
-CCDDEE
-CCDDEE
-"
-g1 + g2 + g3 + g4 + g5 +
-    plot_layout(design = layout, guides="collect")
-ggsave("merged_assumptions.pdf", width=16, height=9)
+                            FALSE,
+                            "")
+## layout <- "
+## ##AAAA
+## ##AAAA
+## BBAAAA
+## BBAAAA
+## CCDDEE
+## CCDDEE
+## "
+## g1 + g2 + g3 + g4 + g5 +
+##     plot_layout(design = layout, guides="collect")
+## ggsave("merged_assumptions.pdf", width=16, height=9)
 
+############################
+## Replot with error bars ##
+############################
+e1 <- plot_with_assumption_colors(c("All Assumptions Met" = "darkgreen",
+                                    "All Assumptions Violated" = "red",
+                                    "Low Depth" = "orange",
+                                    "Long Timepoint" = "blue"),
+                                  c("All Assumptions Met",
+                                    "All Assumptions Violated",
+                                    "Low Depth",
+                                    "Long Timepoint"),
+                                  "err_greyout_full.pdf",
+                                  TRUE,
+                                  c("All Assumptions Met",
+                                    "All Assumptions Violated",
+                                    "Low Depth",
+                                    "Long Timepoint"))
+e2 <- plot_with_assumption_colors(c("All Assumptions Met" = "darkgreen",
+                                    "All Assumptions Violated" = "aliceblue",
+                                    "Low Depth" = "aliceblue",
+                                    "Long Timepoint" = "aliceblue"),
+                                  c("Long Timepoint",
+                                    "All Assumptions Violated",
+                                    "Low Depth",
+                                    "All Assumptions Met"),
+                                  "err_greyout_all.pdf",
+                                  FALSE,
+                                  c("All Assumptions Met"))
+e3 <- plot_with_assumption_colors(c("All Assumptions Met" = "aliceblue",
+                                    "All Assumptions Violated" = "red",
+                                    "Low Depth" = "aliceblue",
+                                    "Long Timepoint" = "aliceblue"),
+                                  c("All Assumptions Met",
+                                    "Long Timepoint",
+                                    "Low Depth",
+                                    "All Assumptions Violated"),
+                                  "err_greyout_none.pdf",
+                                  FALSE,
+                                  c("All Assumptions Violated"))
+e4 <- plot_with_assumption_colors(c("All Assumptions Met" = "aliceblue",
+                                    "All Assumptions Violated" = "aliceblue",
+                                    "Low Depth" = "orange",
+                                    "Long Timepoint" = "aliceblue"),
+                                  c("All Assumptions Met",
+                                    "All Assumptions Violated",
+                                    "Long Timepoint",
+                                    "Low Depth"),
+                                  "err_greyout_low.pdf",
+                                  FALSE,
+                                  c("Low Depth"))
+e5 <- plot_with_assumption_colors(c("All Assumptions Met" = "aliceblue",
+                                    "All Assumptions Violated" = "aliceblue",
+                                    "Low Depth" = "aliceblue",
+                                    "Long Timepoint" = "blue"),
+                                  c("All Assumptions Met",
+                                    "All Assumptions Violated",
+                                    "Low Depth",
+                                    "Long Timepoint"),
+                                  "err_greyout_long.pdf",
+                                  FALSE,
+                                  c("Long Timepoint"))
+
+
+#################
+## Other plots ##
+#################
 ggplot(data = res_all) +
     geom_point(aes(x=depth_reference,
                    y=depth_sample,
@@ -553,7 +628,7 @@ ggplot(data = res_all) +
     geom_hline(yintercept=1307030, color="red", linetype="dashed") +
     geom_abline(slope=1, intercept=0, color="black", linetype="dotted") +
     theme_tufte() +
-    theme(text=element_text(family="Helvetica")) +
+    theme(text=element_text(family="Helvetica", size=16)) +
     labs(
         title = "Published Spikeins Have High Variability",
         x = "Depth Reference",
@@ -571,7 +646,7 @@ ggplot(data = res_all) +
     geom_hline(yintercept=10, color="red", linetype="dashed") +
     geom_abline(slope=1, intercept=0, color="black", linetype="dotted") +
     theme_tufte() +
-    theme(text=element_text(family="Helvetica")) +
+    theme(text=element_text(family="Helvetica", size=16)) +
     labs(
         title = "Published Spikeins Have High Variability",
         x = "Reference Transcriptome Coverage",
@@ -590,7 +665,7 @@ ggplot(data = res_all) +
     geom_vline(xintercept=10, color="red", linetype="dotted") +
     ## geom_vline(xintercept=5, color="blue", linetype="dotted") +
     theme_tufte() +
-    theme(text=element_text(family="Helvetica")) +
+    theme(text=element_text(family="Helvetica", size=16)) +
     ## scale_x_log10() +
     ylim(c(0.8,1.0)) +
     labs(
@@ -611,9 +686,11 @@ ggplot(data=res_all) +
          title = paste0('Spike-In Transcriptome Coverage (',
                         n_expt, " Publications, n=", n_sample, ")")) +
     theme_tufte() +
-    theme(text=element_text(family="Helvetica"), legend.position="none")
+    theme(text=element_text(family="Helvetica", size=16), legend.position="none")
 ## print(plotDir)
 ggsave("spikein_millionsmapped_coverage.pdf", width=8, height=6)
+
+data.frame(res_all %>% filter(experiment == "Aoi2020nelf"))
 
 ######################################################################
 ### compare_replicates.R ends here

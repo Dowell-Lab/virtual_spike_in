@@ -3,6 +3,48 @@
 This repository contains code for Virtual Spike-In, a hierarchical bayesian model for inference of inter-sample normalization values in sequencing data using a counts table over either an invariant region of the genome or from an exogenous spike-in.
 This repository includes scripts used in the initial development of this model, the model itself and an associated NextFlow pipeline to automatically run the model on a selected dataset using a 3' invariant region, as well as scripts used for generating the figures used in the final manuscript. Relevant folders/scripts and their purposes are described below.
 
+## Installation
+
+## Python Dependencies
+
+The python components of this package are presented in a PEP518 compatible `pyproject.toml` file. The project was developed using `poetry`, which is also the easiest way to install the locked versions of the dependencies of the project.
+
+To install the dependencies using poetry, run the following commands:
+```
+# Clone the repository
+git clone <repository>
+# Install poetry
+cd virtual_spike_in
+# <Do whatever virtualenv stuff you want to do>
+pip install poetry
+# Install the dependencies
+poetry install
+```
+
+## Pipeline Dependencies
+
+These dependencies should be automatically managed using NextFlow if available on your cluster.
+- Nextflow - required for running the pipeline
+- Bedtools - used for isoform filtering
+- Samtools - used for converting files between different formats
+
+
+## Optional Dependencies
+
+- R - used for generating figures
+	- Tidyverse - used for data manipulation
+
+## Common Issues
+
+- `pymc` is picky about how libraries are linked. If you are using something like `pyenv` to manage your python environments, you might have to install your python version using shared libraries, as follows:
+```
+env PYTHON_CONFIGURE_OPTS="--enable-shared" pyenv install 3.8.0
+```
+- To squeeze the most possible performance out of your python installation, you can use the following flags to compile python with shared libraries also enabled:
+```
+env PYTHON_CONFIGURE_OPTS='--enable-shared --enable-optimizations --with-lto' PYTHON_CFLAGS='-march=native -mtune=native' pyenv install 3.8.0
+```
+
 ## Repository Structure
 
 The repository is structured as a standard python package with some additional folders for project and analysis specific scripts.

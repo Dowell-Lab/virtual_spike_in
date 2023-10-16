@@ -58,11 +58,12 @@ factors <- 2 ^ seq(-1.47,
 counts_file <- '~/Dropbox/phd/research/dna_lab/virtual_spike_in/pipeline_counts/counts/counts_merged.txt'
 counts_ini <- read_delim(counts_file) %>%
     as_tibble()
+## Try this with the better 40 min timepoint
 counts <- counts_ini %>%
     transmute(control_1 = SRR5364303.sorted.sorted.bam,
               control_2 = SRR5364304.sorted.sorted.bam,
-              treatment_1 = SRR5364311.sorted.sorted.bam,
-              treatment_2 = SRR5364312.sorted.sorted.bam)
+              treatment_1 = SRR5364309.sorted.sorted.bam,
+              treatment_2 = SRR5364310.sorted.sorted.bam)
 counts_matrix <- as.matrix(counts)
 rownames(counts_matrix) <- counts_ini$Geneid
 conditions <- factor(c("1", "1", "2", "2"))
@@ -89,6 +90,7 @@ run_deseq_with_plot <- function(size_factors, plot_title) {
         geom_point(aes(x = baseMean, y = log2FoldChange), show.legend = FALSE) +
         scale_color_manual(values = c("black", "red")) +
         scale_x_log10(limits=c(1,50000)) +
+        theme(text=element_text(family="Helvetica", size=16)) +
         ylim(-8, 8) +
         labs(title=paste0(plot_title,
                           "\nNumber of Significant Points (p<0.01) = "),
@@ -124,6 +126,7 @@ ggplot() +
                   y=percent_significant)) +
     geom_vline(aes(xintercept = 0), color="red") +
     ylim(0,1) +
+    theme(text=element_text(family="Helvetica", size=16)) +
     labs(title = "Proportion Significant vs Size Factor",
          x = "B / A Size Factor Ratio",
          y = "Proportion Significant (p < 0.01)")
@@ -143,7 +146,7 @@ ggsave(paste0(plot_dir, "significance_front.jpg"), width=16,height=9)
 
 ## Run using the true values
 ## res_vsi <- run_deseq_with_plot(c(1, 0.890, 0.677, 1.095), "VSI Size Factors")
-res_vsi <- run_deseq_with_plot(c(1, 0.890, 0.677, 1.095), "VSI Size Factors")
+res_vsi <- run_deseq_with_plot(c(1,0.891,0.834,0.818), "VSI Size Factors")
 ggsave(paste0(plot_dir, "maplot_vsi.pdf"), width=16,height=9)
 
 ## Run using DESeq2 estimate
@@ -175,6 +178,7 @@ ggplot(data = res_merge) +
     ## ylim(c(plot_max, plot_min)) +
     guides(color="none") +
     theme_minimal() +
+    theme(text=element_text(family="Helvetica", size=16)) +
     labs(x="DESeq2 -log10 p-adjusted", y="VSI -log10 p-adjusted",
          title="Genes called as significant with VSI and DESeq2 size factors (p < 0.01)")
 ggsave(paste0(plot_dir, "significant_gene_comparison.pdf"), width=8,height=8)
@@ -189,11 +193,11 @@ ggplot(data = res_merge) +
                                   "DESeq2 + VSI Significant")) +
     scale_x_log10(limits=c(1,50000)) +
     ylim(-8, 8) +
-    theme_minimal() +
+    theme_minimal(base_size=18) +
     labs(title=paste0("Differentially Expressed Genes in DESeq2 and VSI"),
          x="Count", y="Log2 Fold Change",
          color = "Significant Genes (p < 0.01)") +
-    theme(legend.position="bottom")
+    theme(legend.position="bottom", text=element_text(family="Helvetica"))
 ggsave(paste0(plot_dir, "deseq_comparison_plot.pdf"), width=16,height=9)
 
 simulation_counts <- read_delim("/Users/zachmaas/Dropbox/phd/research/dna_lab/virtual_spike_in/dat/deseq_variations/simulation_counts.txt",
@@ -208,12 +212,12 @@ ggplot(data = res_count) +
                show.legend = TRUE) +
     scale_color_gradient(low="#9E9E9E", high="#f15156", limits=c(0,1)) +
     scale_x_log10(limits=c(1,50000)) +
-    theme_minimal() +
+    theme_minimal(base_size=18) +
     ylim(-8, 8) +
     labs(title=paste0("Differentially Expressed Genes in DESeq2 Simulations"),
          x="Count", y="Log2 Fold Change",
          color = "Frequency where p<0.01") +
-    theme(legend.position="bottom")
+    theme(legend.position="bottom", text=element_text(family="Helvetica"))
 ggsave(paste0(plot_dir, "deseq_count_plot.pdf"), width=16,height=9)
 ggsave(paste0(plot_dir, "deseq_count_plot.png"), width=16,height=9)
 
