@@ -67,16 +67,15 @@ if ( params.cramDir ) {
 		}
 } else {
 		// We generate bam names from bedgraph names to ensure that they match.
-		// TODO Not necessary
 		samples = Channel
-		.fromPath(params.bedgraphs)
-		.map { file -> tuple(file.baseName, file, "$params.bamDir" + "$file.baseName" + ".sorted.bam")}
-		.set() { bamSamples }
+				.fromPath(params.bamDir)
+				.map { file -> tuple(file.baseName, file)}
+				.set() { bamSamples }
 
 		// Match what we do in the previous step in terms of variable names
 		(bamInit, bamForCounts) = Channel
-				.fromPath(params.bedgraphs)
-				.map { it -> file("$params.bamDir" + "$it.baseName" + ".sorted.bam") }
+				.fromPath(params.bamDir)
+				.map { it -> file(it) }
 				.into(2)
 }
 
